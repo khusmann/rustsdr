@@ -2,7 +2,7 @@ use core::panic;
 
 use clap::{Parser, Subcommand};
 
-use rustsdr::{noise, tone};
+use rustsdr::{convert_to_i16, noise, tone};
 
 use tokio_stream::StreamExt;
 
@@ -42,7 +42,9 @@ async fn main() {
         None => panic!("No subcommand provided"),
     };
 
-    let mut stream = stream.take(5);
+    let stream = stream.map(convert_to_i16);
+
+    let mut stream = stream.take(100);
 
     while let Some(v) = stream.next().await {
         println!("GOT = {:?}", v);

@@ -23,3 +23,7 @@ pub fn tone(freq: &u32, rate: &u32, amplitude: &f32) -> Pin<Box<dyn Stream<Item 
         Some(sample)
     })))
 }
+
+pub fn convert_to_i16(v: f32) -> i16 {
+    (v * i16::MAX as f32) as i16
+}
