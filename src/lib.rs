@@ -10,36 +10,16 @@ pub fn noise() -> Pin<Box<dyn Stream<Item = f32>>> {
 }
 
 pub fn tone(freq: &u32, rate: &u32, amplitude: &f32) -> Pin<Box<dyn Stream<Item = f32>>> {
-    Box::pin(tokio_stream::iter(ToneIter::new(*freq, *rate, *amplitude)))
-}
-
-struct ToneIter {
-    sample_period: u32,
-    curr_phase: u32,
-    amplitude: f32,
-}
-
-impl ToneIter {
-    pub fn new(freq: u32, rate: u32, amplitude: f32) -> Self {
-        let sample_period = rate / freq;
-        Self {
-            sample_period,
-            amplitude,
-            curr_phase: 0,
+    let sample_period = rate / freq;
+    let amplitude = *amplitude;
+    let mut curr_phase = 0u32;
+    Box::pin(tokio_stream::iter(iter::from_fn(move || {
+        curr_phase += 1;
+        if curr_phase >= sample_period {
+            curr_phase = 0;
         }
-    }
-}
-
-impl Iterator for ToneIter {
-    type Item = f32;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.curr_phase += 1;
-        if self.curr_phase >= self.sample_period {
-            self.curr_phase = 0;
-        }
-        let phase = self.curr_phase as f32 / self.sample_period as f32;
-        let sample = self.amplitude * (2.0 * std::f32::consts::PI * phase).sin();
+        let phase = curr_phase as f32 / sample_period as f32;
+        let sample = amplitude * (2.0 * std::f32::consts::PI * phase).sin();
         Some(sample)
-    }
+    })))
 }
