@@ -2,13 +2,15 @@ use core::panic;
 
 use clap::{Parser, Subcommand};
 
-use rustsdr::{convert_to_i16, noise, tone};
+use rustsdr::{source_noise, source_stdin, source_tone};
 
 use tokio_stream::StreamExt;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 struct Cli {
+    #[arg(short, long, default_value_t = 1024)]
+    buffer_size: usize,
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -24,25 +26,25 @@ enum Commands {
         #[arg(short, long, default_value_t = 1.0)]
         amplitude: f32,
     },
+    Convert,
 }
 
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
 
-    let stream = match &cli.command {
+    let mut stream = match &cli.command {
         Some(Commands::Tone {
             freq,
             rate,
             amplitude,
-        }) => tone(freq, rate, amplitude),
-        Some(Commands::Noise {}) => noise(),
+        }) => source_tone(freq, rate, amplitude, cli.buffer_size),
+        Some(Commands::Noise {}) => source_noise(cli.buffer_size),
+        Some(_) => source_stdin(cli.buffer_size),
         None => panic!("No subcommand provided"),
     };
 
-    let stream = stream.map(convert_to_i16);
-
-    let mut stream = stream.take(100);
+    //let mut stream = stream.take(100);
 
     while let Some(v) = stream.next().await {
         println!("GOT = {:?}", v);
