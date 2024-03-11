@@ -11,6 +11,12 @@ use tokio_util::io::ReaderStream;
 use std::io::Error;
 use tokio_util::bytes::{BufMut, Bytes, BytesMut};
 
+pub enum BitDepth {
+    Char,
+    S16,
+    Float,
+}
+
 pub fn source_noise(buffer_size: usize) -> Pin<Box<dyn Stream<Item = Result<Bytes, Error>>>> {
     let mut rng = rand::thread_rng();
     Box::pin(tokio_stream::iter(iter::from_fn(move || {
@@ -44,12 +50,12 @@ pub fn source_tone(
 
             let phase = curr_phase as f32 / sample_period as f32;
             let v = amplitude * (2.0 * std::f32::consts::PI * phase).sin();
-            let sample = ((v * u8::MAX as f32) + u8::MAX as f32) as u8;
+            let sample = ((v * 0.5) * (u8::MAX as f32)) as u8 + 128;
             buf.put_u8(sample)
         }
 
-        if curr_phase >= sample_period {
-            curr_phase = 0;
+        while curr_phase >= sample_period {
+            curr_phase -= sample_period;
         }
 
         Some(Ok(buf.freeze()))
