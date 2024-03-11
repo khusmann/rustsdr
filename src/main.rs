@@ -44,7 +44,10 @@ impl BitDepthOpt {
 
 #[derive(Subcommand)]
 enum Commands {
-    Noise {},
+    Noise {
+        #[arg(short, long)]
+        rate: u32,
+    },
     Tone {
         #[arg(short, long)]
         freq: u32,
@@ -70,8 +73,8 @@ async fn main() -> std::io::Result<()> {
             freq,
             rate,
             amplitude,
-        }) => source_tone(freq, rate, amplitude, cli.buffer_size),
-        Some(Commands::Noise {}) => source_noise(cli.buffer_size),
+        }) => source_tone(*freq, *rate, *amplitude, cli.buffer_size),
+        Some(Commands::Noise { rate }) => source_noise(*rate, cli.buffer_size),
         Some(_) => source_stdin(cli.buffer_size),
         None => panic!("No subcommand provided"),
     };

@@ -1,15 +1,16 @@
-use std::iter;
+use std::io::Error;
 use std::pin::Pin;
 
 use rand::Rng;
+
 use tokio::io::stdin;
+use tokio::time;
 
-use tokio_stream::Stream;
+use tokio_stream::wrappers::IntervalStream;
+use tokio_stream::{Stream, StreamExt};
 
-use tokio_util::io::ReaderStream;
-
-use std::io::Error;
 use tokio_util::bytes::{BufMut, Bytes, BytesMut};
+use tokio_util::io::ReaderStream;
 
 pub enum BitDepth {
     Char,
@@ -17,15 +18,23 @@ pub enum BitDepth {
     Float,
 }
 
-pub fn source_noise(buffer_size: usize) -> Pin<Box<dyn Stream<Item = Result<Bytes, Error>>>> {
+pub fn source_noise(
+    rate: u32,
+    buffer_size: usize,
+) -> Pin<Box<dyn Stream<Item = Result<Bytes, Error>>>> {
+    let delay_period = buffer_size as f32 / rate as f32;
+
+    let interval = time::interval(time::Duration::from_secs_f32(delay_period));
+
     let mut rng = rand::thread_rng();
-    Box::pin(tokio_stream::iter(iter::from_fn(move || {
+
+    Box::pin(IntervalStream::new(interval).map(move |_| {
         let mut buf = BytesMut::with_capacity(buffer_size);
         for _ in 0..buffer_size {
             buf.put_u8(rng.gen());
         }
-        Some(Ok(buf.freeze()))
-    })))
+        Ok(buf.freeze())
+    }))
 }
 
 pub fn source_stdin(buffer_size: usize) -> Pin<Box<dyn Stream<Item = Result<Bytes, Error>>>> {
@@ -33,16 +42,19 @@ pub fn source_stdin(buffer_size: usize) -> Pin<Box<dyn Stream<Item = Result<Byte
 }
 
 pub fn source_tone(
-    freq: &u32,
-    rate: &u32,
-    amplitude: &f32,
+    freq: u32,
+    rate: u32,
+    amplitude: f32,
     buffer_size: usize,
 ) -> Pin<Box<dyn Stream<Item = Result<Bytes, Error>>>> {
     let sample_period = rate / freq;
-    let amplitude = *amplitude;
     let mut curr_phase = 0u32;
 
-    Box::pin(tokio_stream::iter(iter::from_fn(move || {
+    let delay_period = buffer_size as f32 / rate as f32;
+
+    let interval = time::interval(time::Duration::from_secs_f32(delay_period));
+
+    Box::pin(IntervalStream::new(interval).map(move |_| {
         let mut buf = BytesMut::with_capacity(buffer_size);
 
         for _ in 0..buffer_size {
@@ -58,6 +70,6 @@ pub fn source_tone(
             curr_phase -= sample_period;
         }
 
-        Some(Ok(buf.freeze()))
-    })))
+        Ok(buf.freeze())
+    }))
 }
