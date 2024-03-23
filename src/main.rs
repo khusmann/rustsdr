@@ -53,7 +53,7 @@ enum Commands {
         freq: u32,
         #[arg(short, long)]
         rate: u32,
-        #[arg(short, long, default_value_t = 1.0)]
+        #[arg(short, long, default_value_t = 1.0, value_parser = parse_amplitude)]
         amplitude: f32,
     },
     Convert {
@@ -62,6 +62,16 @@ enum Commands {
         #[arg(short, long, value_enum)]
         output: BitDepthOpt,
     },
+}
+
+fn parse_amplitude(s: &str) -> Result<f32, String> {
+    let port: f32 = s.parse().map_err(|_| format!("`{s}` isn't a number"))?;
+
+    if port >= 0.0 && port <= 1.0 {
+        Ok(port)
+    } else {
+        Err(format!("amplitude not in range 0.0 - 1.0"))
+    }
 }
 
 #[tokio::main]
