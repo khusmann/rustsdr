@@ -1,6 +1,5 @@
 use std::io::Error;
 use std::pin::Pin;
-use std::sync::Arc;
 
 use rand::Rng;
 

@@ -2,16 +2,16 @@ use core::panic;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
-use rustsdr::{source_noise, source_stdin, source_tone};
+use rustsdr::{convert_fn, source_noise, source_stdin, source_tone};
 
 use tokio_stream::StreamExt;
 
 use tokio::io::{stdout, AsyncWriteExt};
 
-use tokio_util::bytes::{BufMut, BytesMut};
-
 /*
-cargo run -- -b 10000 tone -a 0.5 -f 440 -r 48000 | mplayer -cache 1024 -quiet -rawaudio samplesize=2:channels=1:rate=48000 -demuxer rawaudio -
+cargo run -- tone -a 0.5 -f 440 -r 48000 |
+cargo run -- convert --input char --output s16 |
+mplayer -cache 1024 -quiet -rawaudio samplesize=2:channels=1:rate=48000 -demuxer rawaudio -
 */
 
 #[derive(Parser)]
@@ -30,9 +30,8 @@ enum BitDepthOpt {
     Float,
 }
 
-/*
 impl BitDepthOpt {
-    fn as_internal(&self) -> rustsdr::BitDepth {
+    fn to_bitdepth(&self) -> rustsdr::BitDepth {
         match self {
             BitDepthOpt::Char => rustsdr::BitDepth::Char,
             BitDepthOpt::S16 => rustsdr::BitDepth::S16,
@@ -40,7 +39,6 @@ impl BitDepthOpt {
         }
     }
 }
-*/
 
 #[derive(Subcommand)]
 enum Commands {
@@ -89,17 +87,13 @@ async fn main() -> std::io::Result<()> {
         None => panic!("No subcommand provided"),
     };
 
-    let mut stream = stream.map(|v| {
-        v.map(|v| {
-            let mut buf = BytesMut::new();
-
-            for b in v {
-                buf.put_u16(b as u16 * (u16::MAX / u8::MAX as u16))
-            }
-
-            buf
-        })
-    });
+    let mut stream = match &cli.command {
+        Some(Commands::Convert { input, output }) => {
+            Box::pin(stream.map(|v| v.map(convert_fn(input.to_bitdepth(), output.to_bitdepth()))))
+        }
+        Some(_) => stream,
+        None => panic!("No subcommand provided"),
+    };
 
     while let Some(v) = stream.next().await {
         match v {
