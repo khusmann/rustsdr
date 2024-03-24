@@ -1,5 +1,6 @@
 use std::io::Error;
 use std::pin::Pin;
+use std::sync::Arc;
 
 use rand::Rng;
 
@@ -120,14 +121,10 @@ pub fn convert_fn(input: BitDepth, output: BitDepth) -> impl Fn(Bytes) -> Bytes 
                     buf.put_i16((b * (i16::MAX as f32)) as i16)
                 }
             }
-            (BitDepth::Char, BitDepth::Char) => {
-                buf.extend_from_slice(&v);
-            }
-            (BitDepth::S16, BitDepth::S16) => {
-                buf.extend_from_slice(&v);
-            }
-            (BitDepth::Float, BitDepth::Float) => {
-                buf.extend_from_slice(&v);
+            (_, _) => {
+                while v.has_remaining() {
+                    buf.put_u8(v.get_u8());
+                }
             }
         }
 
