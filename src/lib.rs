@@ -9,7 +9,7 @@ use tokio::time;
 use tokio_stream::wrappers::IntervalStream;
 use tokio_stream::{Stream, StreamExt};
 
-use num_complex::Complex;
+use num_complex::{Complex, ComplexFloat};
 use tokio_util::bytes::{Buf, BufMut, Bytes, BytesMut};
 use tokio_util::io::ReaderStream;
 
@@ -19,10 +19,10 @@ use itertools::Itertools;
 
 use pin_project::pin_project;
 
-type ComplexF32Chunk = Vec<Complex<f32>>;
+type ComplexFloatChunk = Vec<Complex<f32>>;
 type ComplexS16Chunk = Vec<Complex<i16>>;
 type ComplexCharChunk = Vec<Complex<u8>>;
-type F32Chunk = Vec<f32>;
+type FloatChunk = Vec<f32>;
 type S16Chunk = Vec<i16>;
 type CharChunk = Vec<u8>;
 
@@ -31,6 +31,53 @@ pub enum BitDepth {
     Char,
     S16,
     Float,
+}
+
+pub enum SampleStreamRef {
+    ComplexFloat(Pin<Box<dyn Stream<Item = ComplexFloatChunk>>>),
+    ComplexS16(Pin<Box<dyn Stream<Item = ComplexS16Chunk>>>),
+    ComplexChar(Pin<Box<dyn Stream<Item = ComplexCharChunk>>>),
+    Float(Pin<Box<dyn Stream<Item = FloatChunk>>>),
+    S16(Pin<Box<dyn Stream<Item = S16Chunk>>>),
+    Char(Pin<Box<dyn Stream<Item = CharChunk>>>),
+}
+
+pub struct Pipeline {
+    inner: SampleStreamRef,
+}
+
+impl<T> From<T> for Pipeline
+where
+    T: Stream<Item = ComplexFloatChunk> + 'static,
+{
+    fn from(s: T) -> Self {
+        Self {
+            inner: SampleStreamRef::ComplexFloat(Box::pin(s)),
+        }
+    }
+}
+
+impl Pipeline {
+    pub fn convert_float(self) -> Self {
+        match self.inner {
+            SampleStreamRef::ComplexFloat(_) => self,
+            SampleStreamRef::Float(_) => self,
+            SampleStreamRef::S16(s) => {
+                let s = s.map(|chunk| chunk.iter().map(|&v| s16_to_float(v)).collect());
+                Self {
+                    inner: SampleStreamRef::Float(Box::pin(s)),
+                }
+            }
+            _ => panic!("pipeline is not a complex float stream"),
+        }
+    }
+
+    pub fn stream_complex_float(self) -> Pin<Box<dyn Stream<Item = ComplexFloatChunk>>> {
+        match self.inner {
+            SampleStreamRef::ComplexFloat(s) => s,
+            _ => panic!("pipeline is not a complex float stream"),
+        }
+    }
 }
 
 /*
@@ -53,7 +100,7 @@ pub fn rand_sample_gen() -> impl FnMut() -> Complex<f32> {
     move || Complex::new(rng.gen(), rng.gen())
 }
 
-pub fn buffered_gen_stream<'a, F, R>(
+pub fn buffered_sample_stream<'a, F, R>(
     mut f: F,
     rate: u32,
     buffer_size: usize,

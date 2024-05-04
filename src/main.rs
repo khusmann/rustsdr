@@ -2,11 +2,12 @@ use core::panic;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
-use rustsdr::{buffered_gen_stream, tone_sample_gen};
+use rustsdr::{buffered_sample_stream, tone_sample_gen, Pipeline, SampleStreamRef};
 
 use tokio_stream::StreamExt;
 
 use tokio::io::{stdout, AsyncWriteExt};
+use tokio::pin;
 
 /*
 cargo run -- tone -a 0.5 -f 440 -r 48000 |
@@ -74,9 +75,13 @@ fn parse_amplitude(s: &str) -> Result<f32, String> {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    let mut stream = buffered_gen_stream(tone_sample_gen(440, 48000, 0.5), 10, 10);
+    let stream = buffered_sample_stream(tone_sample_gen(440, 48000, 0.5), 10, 10);
 
-    while let Some(v) = stream.next().await {
+    let mut pipe = Pipeline::from(stream);
+
+    let mut pipe_stream = pipe.stream_complex_float();
+
+    while let Some(v) = pipe_stream.next().await {
         println!("{:?}", v)
     }
     /*
