@@ -8,6 +8,8 @@ use tokio_stream::StreamExt;
 
 use tokio::io::{stdout, AsyncWriteExt};
 
+mod sourcetone;
+
 /*
 cargo run -- tone -a 0.5 -f 440 -r 48000 |
 cargo run -- convert --input char --output s16 |
@@ -74,37 +76,44 @@ fn parse_amplitude(s: &str) -> Result<f32, String> {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    let cli = Cli::parse();
-
-    let stream = match &cli.command {
-        Some(Commands::Tone {
-            freq,
-            rate,
-            amplitude,
-        }) => source_tone(*freq, *rate, *amplitude, cli.buffer_size),
-        Some(Commands::Noise { rate }) => source_noise(*rate, cli.buffer_size),
-        Some(_) => source_stdin(cli.buffer_size),
-        None => panic!("No subcommand provided"),
-    };
-
-    let mut stream = match &cli.command {
-        Some(Commands::Convert { input, output }) => {
-            Box::pin(stream.map(|v| v.map(convert_fn(input.to_bitdepth(), output.to_bitdepth()))))
-        }
-        Some(_) => stream,
-        None => panic!("No subcommand provided"),
-    };
+    let mut stream =
+        sourcetone::buffered_gen_stream(sourcetone::tone_sample_gen(440, 48000, 0.5), 10, 10);
 
     while let Some(v) = stream.next().await {
-        match v {
-            Ok(v) => {
-                stdout().write_all(&v).await?;
+        println!("{:?}", v)
+    }
+    /*
+        let cli = Cli::parse();
+
+        let stream = match &cli.command {
+            Some(Commands::Tone {
+                freq,
+                rate,
+                amplitude,
+            }) => source_tone(*freq, *rate, *amplitude, cli.buffer_size),
+            Some(Commands::Noise { rate }) => source_noise(*rate, cli.buffer_size),
+            Some(_) => source_stdin(cli.buffer_size),
+            None => panic!("No subcommand provided"),
+        };
+
+        let mut stream = match &cli.command {
+            Some(Commands::Convert { input, output }) => {
+                Box::pin(stream.map(|v| v.map(convert_fn(input.to_bitdepth(), output.to_bitdepth()))))
             }
-            Err(e) => {
-                return Err(e);
+            Some(_) => stream,
+            None => panic!("No subcommand provided"),
+        };
+
+        while let Some(v) = stream.next().await {
+            match v {
+                Ok(v) => {
+                    stdout().write_all(&v).await?;
+                }
+                Err(e) => {
+                    return Err(e);
+                }
             }
         }
-    }
-
+    */
     Ok(())
 }
