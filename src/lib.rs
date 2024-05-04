@@ -3,6 +3,7 @@ use std::pin::Pin;
 
 use rand::Rng;
 
+use std::ops::{Deref, DerefMut};
 use tokio::io::stdin;
 use tokio::time;
 
@@ -33,50 +34,70 @@ pub enum BitDepth {
     Float,
 }
 
-pub enum SampleStreamRef {
-    ComplexFloat(Pin<Box<dyn Stream<Item = ComplexFloatChunk>>>),
-    ComplexS16(Pin<Box<dyn Stream<Item = ComplexS16Chunk>>>),
-    ComplexChar(Pin<Box<dyn Stream<Item = ComplexCharChunk>>>),
-    Float(Pin<Box<dyn Stream<Item = FloatChunk>>>),
-    S16(Pin<Box<dyn Stream<Item = S16Chunk>>>),
-    Char(Pin<Box<dyn Stream<Item = CharChunk>>>),
+pub struct Pipeline<T> {
+    inner: Pin<Box<dyn Stream<Item = T>>>,
 }
 
-pub struct Pipeline {
-    inner: SampleStreamRef,
-}
-
-impl<T> From<T> for Pipeline
+impl<T> From<T> for Pipeline<ComplexFloatChunk>
 where
     T: Stream<Item = ComplexFloatChunk> + 'static,
 {
     fn from(s: T) -> Self {
-        Self {
-            inner: SampleStreamRef::ComplexFloat(Box::pin(s)),
-        }
+        Self { inner: Box::pin(s) }
     }
 }
 
-impl Pipeline {
-    pub fn convert_float(self) -> Self {
-        match self.inner {
-            SampleStreamRef::ComplexFloat(_) => self,
-            SampleStreamRef::Float(_) => self,
-            SampleStreamRef::S16(s) => {
-                let s = s.map(|chunk| chunk.iter().map(|&v| s16_to_float(v)).collect());
-                Self {
-                    inner: SampleStreamRef::Float(Box::pin(s)),
-                }
-            }
-            _ => panic!("pipeline is not a complex float stream"),
-        }
+impl<T> From<T> for Pipeline<ComplexS16Chunk>
+where
+    T: Stream<Item = ComplexS16Chunk> + 'static,
+{
+    fn from(s: T) -> Self {
+        Self { inner: Box::pin(s) }
     }
+}
 
-    pub fn stream_complex_float(self) -> Pin<Box<dyn Stream<Item = ComplexFloatChunk>>> {
-        match self.inner {
-            SampleStreamRef::ComplexFloat(s) => s,
-            _ => panic!("pipeline is not a complex float stream"),
-        }
+impl<T> From<T> for Pipeline<ComplexCharChunk>
+where
+    T: Stream<Item = ComplexCharChunk> + 'static,
+{
+    fn from(s: T) -> Self {
+        Self { inner: Box::pin(s) }
+    }
+}
+
+impl<T> Deref for Pipeline<T> {
+    type Target = Pin<Box<dyn Stream<Item = T>>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<T> DerefMut for Pipeline<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+impl Pipeline<ComplexFloatChunk> {
+    pub fn convert_to_float(self) -> Self {
+        self
+    }
+    pub fn convert_to_s16(self) -> Pipeline<ComplexS16Chunk> {
+        Pipeline::from(self.inner.map(|chunk| {
+            chunk
+                .iter()
+                .map(|&c| Complex::new(float_to_s16(c.re), float_to_s16(c.im)))
+                .collect()
+        }))
+    }
+    pub fn convert_to_char(self) -> Pipeline<ComplexCharChunk> {
+        Pipeline::from(self.inner.map(|chunk| {
+            chunk
+                .iter()
+                .map(|&c| Complex::new(float_to_char(c.re), float_to_char(c.im)))
+                .collect()
+        }))
     }
 }
 

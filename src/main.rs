@@ -2,7 +2,7 @@ use core::panic;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
-use rustsdr::{buffered_sample_stream, tone_sample_gen, Pipeline, SampleStreamRef};
+use rustsdr::{buffered_sample_stream, tone_sample_gen, Pipeline};
 
 use tokio_stream::StreamExt;
 
@@ -77,11 +77,9 @@ fn parse_amplitude(s: &str) -> Result<f32, String> {
 async fn main() -> std::io::Result<()> {
     let stream = buffered_sample_stream(tone_sample_gen(440, 48000, 0.5), 10, 10);
 
-    let mut pipe = Pipeline::from(stream);
+    let mut pipe = Pipeline::from(stream).convert_to_char();
 
-    let mut pipe_stream = pipe.stream_complex_float();
-
-    while let Some(v) = pipe_stream.next().await {
+    while let Some(v) = pipe.next().await {
         println!("{:?}", v)
     }
     /*
