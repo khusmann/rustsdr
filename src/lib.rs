@@ -36,6 +36,77 @@ pub enum BitDepth {
     Float,
 }
 
+pub trait BufferedSampleStream: Stream {
+    type Sample;
+    fn map_samples<F, R>(self, f: F) -> impl Stream<Item = Vec<R>>
+    where
+        F: FnMut(Self::Sample) -> R;
+}
+
+pub trait RealBufferedSampleStream: BufferedSampleStream {
+    fn lift_complex(self) -> impl Stream<Item = Vec<Complex<Self::Sample>>>;
+}
+
+pub trait ComplexBufferedSampleStream: BufferedSampleStream {
+    type Arg;
+    fn realpart(self) -> impl Stream<Item = Vec<Self::Arg>>;
+    fn map_sample_args<R, F>(self, f: F) -> impl Stream<Item = Vec<Complex<R>>>
+    where
+        F: FnMut(Self::Arg) -> R;
+}
+
+impl<T, St> RealBufferedSampleStream for St
+where
+    St: Stream<Item = Vec<T>>,
+    T: Num,
+{
+    fn lift_complex(self) -> impl Stream<Item = Vec<Complex<T>>> {
+        self.map_samples(|v| Complex::new(v, T::zero()))
+    }
+}
+
+impl<T, St> ComplexBufferedSampleStream for St
+where
+    St: Stream<Item = Vec<Complex<T>>>,
+{
+    type Arg = T;
+
+    fn realpart(self) -> impl Stream<Item = Vec<T>> {
+        self.map_samples(|v| v.re)
+    }
+
+    fn map_sample_args<R, F>(self, mut f: F) -> impl Stream<Item = Vec<Complex<R>>>
+    where
+        F: FnMut(T) -> R,
+    {
+        self.map_samples(move |v| Complex::new(f(v.re), f(v.im)))
+    }
+}
+
+impl<T, St> BufferedSampleStream for St
+where
+    St: Stream<Item = Vec<T>>,
+{
+    type Sample = T;
+
+    fn map_samples<F, R>(self, mut f: F) -> impl Stream<Item = Vec<R>>
+    where
+        F: FnMut(T) -> R,
+    {
+        self.map(move |chunk| chunk.into_iter().map(|v| f(v)).collect())
+    }
+}
+
+pub fn from_sample_fn<F, T>(mut f: F, rate: u32, buffer_size: usize) -> impl Stream<Item = Vec<T>>
+where
+    F: FnMut() -> T,
+{
+    let delay_period = buffer_size as f32 / rate as f32;
+    let interval = time::interval(time::Duration::from_secs_f32(delay_period));
+    IntervalStream::new(interval).map(move |_| (0..buffer_size).map(|_| f()).collect())
+}
+
+/*
 #[pin_project]
 pub struct BufferedSampleStream<St, T>
 where
@@ -45,19 +116,7 @@ where
     stream: St,
 }
 
-pub fn from_sample_fn<F, T>(
-    mut f: F,
-    rate: u32,
-    buffer_size: usize,
-) -> BufferedSampleStream<impl Stream<Item = Vec<T>>, T>
-where
-    F: FnMut() -> T,
-{
-    let delay_period = buffer_size as f32 / rate as f32;
-    let interval = time::interval(time::Duration::from_secs_f32(delay_period));
-    let s = IntervalStream::new(interval).map(move |_| (0..buffer_size).map(|_| f()).collect());
-    BufferedSampleStream::new(s)
-}
+
 
 impl<St, T> BufferedSampleStream<St, T>
 where
@@ -222,7 +281,7 @@ where
         Self { stream }
     }
 }
-
+*/
 /*
 pub struct Pipeline<T> {
     inner: Pin<Box<dyn Stream<Item = Vec<T>>>>,
