@@ -1,4 +1,3 @@
-use rustsdr::bss::IntoDynSampleStream;
 use rustsdr::*;
 
 use core::panic;
@@ -6,7 +5,8 @@ use core::panic;
 use clap::{Parser, Subcommand, ValueEnum};
 
 use bss::{
-    ComplexBufferedSampleStream, ConvertComplexStream, ConvertRealStream, RealBufferedSampleStream,
+    ComplexBufferedSampleStream, ConvertComplexStream, ConvertRealStream, DeserializeStream,
+    IntoDynSampleStream, RealBufferedSampleStream,
 };
 
 use tokio_stream::StreamExt;
@@ -87,9 +87,9 @@ async fn main() -> std::io::Result<()> {
         .realpart()
         .convert_to_s16()
         .into_dyn()
-        .convert(BitDepthOpt::Char.into());
+        .convert(BitDepthOpt::Float.into());
 
-    let mut stream = pipe.serialize();
+    let mut stream = pipe.serialize().deserialize_char();
 
     while let Some(v) = stream.next().await {
         println!("{:?}", v)

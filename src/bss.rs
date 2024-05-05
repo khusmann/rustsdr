@@ -2,7 +2,7 @@ use std::pin::Pin;
 use tokio::time;
 use tokio_stream::wrappers::IntervalStream;
 use tokio_stream::{Stream, StreamExt};
-use tokio_util::bytes::{BufMut, Bytes, BytesMut};
+use tokio_util::bytes::{Buf, BufMut, Bytes, BytesMut};
 
 use num_complex::Complex;
 use num_traits::Num;
@@ -38,6 +38,15 @@ pub trait ComplexBufferedSampleStream: BufferedSampleStream {
 
 pub trait SerializeStream<Src> {
     fn serialize(self) -> impl Stream<Item = Bytes>;
+}
+
+pub trait DeserializeStream {
+    fn deserialize_complex_float(self) -> impl Stream<Item = Vec<Complex<Float>>>;
+    fn deserialize_complex_s16(self) -> impl Stream<Item = Vec<Complex<S16>>>;
+    fn deserialize_complex_char(self) -> impl Stream<Item = Vec<Complex<Char>>>;
+    fn deserialize_float(self) -> impl Stream<Item = Vec<Float>>;
+    fn deserialize_s16(self) -> impl Stream<Item = Vec<S16>>;
+    fn deserialize_char(self) -> impl Stream<Item = Vec<Char>>;
 }
 
 pub trait ConvertComplexStream<Src> {
@@ -281,6 +290,66 @@ where
                 buf.put_u8(v.im);
             });
             buf.freeze()
+        })
+    }
+}
+
+impl<St> DeserializeStream for St
+where
+    St: Stream<Item = Bytes>,
+{
+    fn deserialize_float(self) -> impl Stream<Item = Vec<Float>> {
+        self.map(|mut chunk| {
+            let mut result = Vec::with_capacity(chunk.len() / 4);
+            while chunk.has_remaining() {
+                result.push(chunk.get_f32());
+            }
+            result
+        })
+    }
+    fn deserialize_s16(self) -> impl Stream<Item = Vec<S16>> {
+        self.map(|mut chunk| {
+            let mut result = Vec::with_capacity(chunk.len() / 2);
+            while chunk.has_remaining() {
+                result.push(chunk.get_i16());
+            }
+            result
+        })
+    }
+    fn deserialize_char(self) -> impl Stream<Item = Vec<Char>> {
+        self.map(|mut chunk| {
+            let mut result = Vec::with_capacity(chunk.len());
+            while chunk.has_remaining() {
+                result.push(chunk.get_u8());
+            }
+            result
+        })
+    }
+    fn deserialize_complex_float(self) -> impl Stream<Item = Vec<Complex<Float>>> {
+        self.map(|mut chunk| {
+            let mut result = Vec::with_capacity(chunk.len() / 8);
+            while chunk.has_remaining() {
+                result.push(Complex::new(chunk.get_f32(), chunk.get_f32()));
+            }
+            result
+        })
+    }
+    fn deserialize_complex_s16(self) -> impl Stream<Item = Vec<Complex<S16>>> {
+        self.map(|mut chunk| {
+            let mut result = Vec::with_capacity(chunk.len() / 4);
+            while chunk.has_remaining() {
+                result.push(Complex::new(chunk.get_i16(), chunk.get_i16()));
+            }
+            result
+        })
+    }
+    fn deserialize_complex_char(self) -> impl Stream<Item = Vec<Complex<Char>>> {
+        self.map(|mut chunk| {
+            let mut result = Vec::with_capacity(chunk.len() / 2);
+            while chunk.has_remaining() {
+                result.push(Complex::new(chunk.get_u8(), chunk.get_u8()));
+            }
+            result
         })
     }
 }
