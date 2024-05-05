@@ -11,6 +11,7 @@ use futures::stream::{Map, Stream, StreamExt};
 use tokio_stream::wrappers::IntervalStream;
 
 use num_complex::Complex;
+use num_traits::Num;
 use tokio_util::bytes::{Buf, BufMut, Bytes, BytesMut};
 use tokio_util::io::ReaderStream;
 
@@ -79,9 +80,17 @@ where
     {
         self.map_chunks(move |chunk| chunk.into_iter().map(|v| f(v)).collect())
     }
+}
 
-    pub fn foo() {
-        println!("asdf");
+impl<St, T> BufferedSampleStream<St, T>
+where
+    St: Stream<Item = Vec<T>>,
+    T: Num,
+{
+    pub fn lift_complex(
+        self,
+    ) -> BufferedSampleStream<impl Stream<Item = Vec<Complex<T>>>, Complex<T>> {
+        self.map_samples(|v| Complex::new(v, T::zero()))
     }
 }
 
@@ -97,6 +106,10 @@ where
         F: FnMut(T) -> R,
     {
         self.map_samples(move |v| Complex::new(f(v.re), f(v.im)))
+    }
+
+    pub fn realpart(self) -> BufferedSampleStream<impl Stream<Item = Vec<T>>, T> {
+        self.map_samples(|v| v.re)
     }
 }
 

@@ -75,7 +75,9 @@ fn parse_amplitude(s: &str) -> Result<f32, String> {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    let mut stream = from_sample_fn(tone_sample_gen(440, 48000, 0.5), 10, 10);
+    let mut stream = from_sample_fn(tone_sample_gen(440, 48000, 1.0), 10, 10)
+        .convert_to_char()
+        .realpart();
 
     while let Some(v) = stream.next().await {
         println!("{:?}", v)
