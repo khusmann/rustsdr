@@ -38,27 +38,9 @@ pub struct Pipeline<T> {
     inner: Pin<Box<dyn Stream<Item = T>>>,
 }
 
-impl<T> From<T> for Pipeline<ComplexFloatChunk>
+impl<T, Ch> From<T> for Pipeline<Ch>
 where
-    T: Stream<Item = ComplexFloatChunk> + 'static,
-{
-    fn from(s: T) -> Self {
-        Self { inner: Box::pin(s) }
-    }
-}
-
-impl<T> From<T> for Pipeline<ComplexS16Chunk>
-where
-    T: Stream<Item = ComplexS16Chunk> + 'static,
-{
-    fn from(s: T) -> Self {
-        Self { inner: Box::pin(s) }
-    }
-}
-
-impl<T> From<T> for Pipeline<ComplexCharChunk>
-where
-    T: Stream<Item = ComplexCharChunk> + 'static,
+    T: Stream<Item = Ch> + 'static,
 {
     fn from(s: T) -> Self {
         Self { inner: Box::pin(s) }
@@ -79,18 +61,27 @@ impl<T> DerefMut for Pipeline<T> {
     }
 }
 
+// map_chunks
+// map_values
+// map_complex_values
+
 impl Pipeline<ComplexFloatChunk> {
+    pub fn map_chunks<T>(self, f: impl FnMut(ComplexFloatChunk) -> T + 'static) -> Pipeline<T> {
+        Pipeline::from(self.inner.map(f))
+    }
+
+    pub fn map_values<T>(self, mut f: impl FnMut(Complex<f32>) -> T + 'static) -> Pipeline<Vec<T>> {
+        self.map_chunks(move |chunk| chunk.into_iter().map(|v| f(v)).collect())
+    }
+
     pub fn convert_to_float(self) -> Self {
         self
     }
+
     pub fn convert_to_s16(self) -> Pipeline<ComplexS16Chunk> {
-        Pipeline::from(self.inner.map(|chunk| {
-            chunk
-                .iter()
-                .map(|&c| Complex::new(float_to_s16(c.re), float_to_s16(c.im)))
-                .collect()
-        }))
+        self.map_values(lift_complex(float_to_s16))
     }
+
     pub fn convert_to_char(self) -> Pipeline<ComplexCharChunk> {
         Pipeline::from(self.inner.map(|chunk| {
             chunk
@@ -132,6 +123,13 @@ where
     let delay_period = buffer_size as f32 / rate as f32;
     let interval = time::interval(time::Duration::from_secs_f32(delay_period));
     IntervalStream::new(interval).map(move |_| (0..buffer_size).map(|_| f()).collect())
+}
+
+pub fn lift_complex<F, T, R>(mut f: F) -> impl FnMut(Complex<T>) -> Complex<R>
+where
+    F: FnMut(T) -> R,
+{
+    move |c| Complex::new(f(c.re), f(c.im))
 }
 
 pub fn char_to_s16(v: u8) -> i16 {
