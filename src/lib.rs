@@ -34,7 +34,7 @@ pub enum BitDepth {
     S16,
     Float,
 }
-
+/*
 pub struct Pipeline<T> {
     inner: Pin<Box<dyn Stream<Item = Vec<T>>>>,
 }
@@ -62,47 +62,6 @@ impl<T> DerefMut for Pipeline<T> {
     }
 }
 
-// map_chunks
-// map_values
-
-pub trait BufferedSampleStream {
-    type Sample;
-    /*
-    fn poll_next_chunk(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Vec<Self::Sample>>>;
-    */
-
-    fn map_samples<R, F>(self, f: F) -> impl Stream<Item = Vec<R>>
-    where
-        F: FnMut(Self::Sample) -> R;
-}
-
-impl<S, T> BufferedSampleStream for S
-where
-    S: Stream<Item = Vec<T>>,
-{
-    type Sample = T;
-
-    /*
-    fn poll_next_chunk(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Vec<Self::Sample>>> {
-        self.poll_next(cx)
-    }
-    */
-
-    fn map_samples<R, F>(self, mut f: F) -> impl Stream<Item = Vec<R>>
-    where
-        F: FnMut(Self::Sample) -> R,
-    {
-        self.map(move |chunk| chunk.into_iter().map(|v| f(v)).collect())
-    }
-}
-
-/*
 impl<T> Pipeline<T>
 where
     T: 'static,
