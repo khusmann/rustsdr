@@ -89,7 +89,7 @@ async fn main() -> std::io::Result<()> {
         .into_dyn()
         .convert(BitDepthOpt::Char.into());
 
-    let mut stream = pipe.stream_char();
+    let mut stream = pipe.serialize();
 
     while let Some(v) = stream.next().await {
         println!("{:?}", v)

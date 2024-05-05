@@ -2,6 +2,7 @@ use std::pin::Pin;
 use tokio::time;
 use tokio_stream::wrappers::IntervalStream;
 use tokio_stream::{Stream, StreamExt};
+use tokio_util::bytes::{BufMut, Bytes, BytesMut};
 
 use num_complex::Complex;
 use num_traits::Num;
@@ -33,6 +34,10 @@ pub trait ComplexBufferedSampleStream: BufferedSampleStream {
     fn map_sample_args<R, F>(self, f: F) -> impl Stream<Item = Vec<Complex<R>>>
     where
         F: FnMut(Self::Arg) -> R;
+}
+
+pub trait SerializeStream<Src> {
+    fn serialize(self) -> impl Stream<Item = Bytes>;
 }
 
 pub trait ConvertComplexStream<Src> {
@@ -193,6 +198,93 @@ where
     }
 }
 
+impl<St> SerializeStream<Float> for St
+where
+    St: Stream<Item = Vec<Float>>,
+{
+    fn serialize(self) -> impl Stream<Item = Bytes> {
+        self.map(|chunk| {
+            let mut buf = BytesMut::with_capacity(chunk.len() * 4);
+            chunk.iter().for_each(|&v| buf.put_f32(v));
+            buf.freeze()
+        })
+    }
+}
+
+impl<St> SerializeStream<S16> for St
+where
+    St: Stream<Item = Vec<S16>>,
+{
+    fn serialize(self) -> impl Stream<Item = Bytes> {
+        self.map(|chunk| {
+            let mut buf = BytesMut::with_capacity(chunk.len() * 2);
+            chunk.iter().for_each(|&v| buf.put_i16(v));
+            buf.freeze()
+        })
+    }
+}
+
+impl<St> SerializeStream<Char> for St
+where
+    St: Stream<Item = Vec<Char>>,
+{
+    fn serialize(self) -> impl Stream<Item = Bytes> {
+        self.map(|chunk| {
+            let mut buf = BytesMut::with_capacity(chunk.len());
+            chunk.iter().for_each(|&v| buf.put_u8(v));
+            buf.freeze()
+        })
+    }
+}
+
+impl<St> SerializeStream<ComplexFloat> for St
+where
+    St: Stream<Item = Vec<ComplexFloat>>,
+{
+    fn serialize(self) -> impl Stream<Item = Bytes> {
+        self.map(|chunk| {
+            let mut buf = BytesMut::with_capacity(chunk.len() * 8);
+            chunk.iter().for_each(|v| {
+                buf.put_f32(v.re);
+                buf.put_f32(v.im);
+            });
+            buf.freeze()
+        })
+    }
+}
+
+impl<St> SerializeStream<ComplexS16> for St
+where
+    St: Stream<Item = Vec<ComplexS16>>,
+{
+    fn serialize(self) -> impl Stream<Item = Bytes> {
+        self.map(|chunk| {
+            let mut buf = BytesMut::with_capacity(chunk.len() * 4);
+            chunk.iter().for_each(|v| {
+                buf.put_i16(v.re);
+                buf.put_i16(v.im);
+            });
+            buf.freeze()
+        })
+    }
+}
+
+impl<St> SerializeStream<ComplexChar> for St
+where
+    St: Stream<Item = Vec<ComplexChar>>,
+{
+    fn serialize(self) -> impl Stream<Item = Bytes> {
+        self.map(|chunk| {
+            let mut buf = BytesMut::with_capacity(chunk.len() * 2);
+            chunk.iter().for_each(|v| {
+                buf.put_u8(v.re);
+                buf.put_u8(v.im);
+            });
+            buf.freeze()
+        })
+    }
+}
+
 ////
 
 #[derive(Copy, Clone)]
@@ -212,6 +304,17 @@ pub enum DynSampleStream<'a> {
 }
 
 impl<'a> DynSampleStream<'a> {
+    pub fn serialize(self) -> Pin<Box<dyn Stream<Item = Bytes> + 'a>> {
+        match self {
+            DynSampleStream::ComplexFloat(s) => Box::pin(s.serialize()),
+            DynSampleStream::ComplexS16(s) => Box::pin(s.serialize()),
+            DynSampleStream::ComplexChar(s) => Box::pin(s.serialize()),
+            DynSampleStream::Float(s) => Box::pin(s.serialize()),
+            DynSampleStream::S16(s) => Box::pin(s.serialize()),
+            DynSampleStream::Char(s) => Box::pin(s.serialize()),
+        }
+    }
+
     pub fn realpart(self) -> DynSampleStream<'a> {
         match self {
             DynSampleStream::ComplexFloat(s) => s.realpart().into_dyn(),
