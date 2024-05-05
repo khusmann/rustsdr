@@ -1,3 +1,4 @@
+use rustsdr::bss::IntoDynSampleStream;
 use rustsdr::*;
 
 use core::panic;
@@ -35,12 +36,12 @@ enum BitDepthOpt {
     Float,
 }
 
-impl BitDepthOpt {
-    fn to_bitdepth(&self) -> rustsdr::BitDepth {
-        match self {
-            BitDepthOpt::Char => rustsdr::BitDepth::Char,
-            BitDepthOpt::S16 => rustsdr::BitDepth::S16,
-            BitDepthOpt::Float => rustsdr::BitDepth::Float,
+impl From<BitDepthOpt> for bss::BitDepth {
+    fn from(opt: BitDepthOpt) -> bss::BitDepth {
+        match opt {
+            BitDepthOpt::Char => bss::BitDepth::Char,
+            BitDepthOpt::S16 => bss::BitDepth::S16,
+            BitDepthOpt::Float => bss::BitDepth::Float,
         }
     }
 }
@@ -79,12 +80,16 @@ fn parse_amplitude(s: &str) -> Result<f32, String> {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    let mut stream = bss::from_sample_fn(gen::tone_fn(440, 48000, 1.0), 10, 10)
+    let pipe = bss::from_sample_fn(gen::tone_fn(440, 48000, 1.0), 10, 10)
         .realpart()
         .lift_complex()
         .convert_to_char()
         .realpart()
-        .convert_to_s16();
+        .convert_to_s16()
+        .into_dyn()
+        .convert(BitDepthOpt::Char.into());
+
+    let mut stream = pipe.stream_char();
 
     while let Some(v) = stream.next().await {
         println!("{:?}", v)

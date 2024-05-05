@@ -1,3 +1,4 @@
+use std::pin::Pin;
 use tokio::time;
 use tokio_stream::wrappers::IntervalStream;
 use tokio_stream::{Stream, StreamExt};
@@ -15,7 +16,6 @@ where
     let interval = time::interval(time::Duration::from_secs_f32(delay_period));
     IntervalStream::new(interval).map(move |_| (0..buffer_size).map(|_| f()).collect())
 }
-
 pub trait BufferedSampleStream {
     type Sample;
     fn map_samples<F, R>(self, f: F) -> impl Stream<Item = Vec<R>>
@@ -190,5 +190,147 @@ where
 
     fn convert_to_char(self) -> impl Stream<Item = Vec<Char>> {
         self
+    }
+}
+
+////
+
+#[derive(Copy, Clone)]
+pub enum BitDepth {
+    Char,
+    S16,
+    Float,
+}
+
+pub enum DynSampleStream<'a> {
+    ComplexFloat(Pin<Box<dyn Stream<Item = Vec<ComplexFloat>> + 'a>>),
+    ComplexS16(Pin<Box<dyn Stream<Item = Vec<ComplexS16>> + 'a>>),
+    ComplexChar(Pin<Box<dyn Stream<Item = Vec<ComplexChar>> + 'a>>),
+    Float(Pin<Box<dyn Stream<Item = Vec<Float>> + 'a>>),
+    S16(Pin<Box<dyn Stream<Item = Vec<S16>> + 'a>>),
+    Char(Pin<Box<dyn Stream<Item = Vec<Char>> + 'a>>),
+}
+
+impl<'a> DynSampleStream<'a> {
+    pub fn realpart(self) -> DynSampleStream<'a> {
+        match self {
+            DynSampleStream::ComplexFloat(s) => s.realpart().into_dyn(),
+            DynSampleStream::ComplexS16(s) => s.realpart().into_dyn(),
+            DynSampleStream::ComplexChar(s) => s.realpart().into_dyn(),
+            _ => self,
+        }
+    }
+
+    pub fn convert(self, to: BitDepth) -> DynSampleStream<'a> {
+        match (self, to) {
+            (DynSampleStream::ComplexFloat(s), BitDepth::S16) => s.convert_to_s16().into_dyn(),
+            (DynSampleStream::ComplexFloat(s), BitDepth::Char) => s.convert_to_char().into_dyn(),
+            (DynSampleStream::ComplexS16(s), BitDepth::Float) => s.convert_to_float().into_dyn(),
+            (DynSampleStream::ComplexS16(s), BitDepth::Char) => s.convert_to_char().into_dyn(),
+            (DynSampleStream::ComplexChar(s), BitDepth::Float) => s.convert_to_float().into_dyn(),
+            (DynSampleStream::ComplexChar(s), BitDepth::S16) => s.convert_to_s16().into_dyn(),
+            (DynSampleStream::Float(s), BitDepth::S16) => s.convert_to_s16().into_dyn(),
+            (DynSampleStream::Float(s), BitDepth::Char) => s.convert_to_char().into_dyn(),
+            (DynSampleStream::S16(s), BitDepth::Float) => s.convert_to_float().into_dyn(),
+            (DynSampleStream::S16(s), BitDepth::Char) => s.convert_to_char().into_dyn(),
+            (DynSampleStream::Char(s), BitDepth::Float) => s.convert_to_float().into_dyn(),
+            (DynSampleStream::Char(s), BitDepth::S16) => s.convert_to_s16().into_dyn(),
+            (s, _) => s,
+        }
+    }
+
+    pub fn stream_complex_float(self) -> Pin<Box<dyn Stream<Item = Vec<ComplexFloat>> + 'a>> {
+        match self {
+            DynSampleStream::ComplexFloat(s) => s,
+            _ => panic!("Expected ComplexFloat"),
+        }
+    }
+    pub fn stream_complex_s16(self) -> Pin<Box<dyn Stream<Item = Vec<ComplexS16>> + 'a>> {
+        match self {
+            DynSampleStream::ComplexS16(s) => s,
+            _ => panic!("Expected ComplexS16"),
+        }
+    }
+    pub fn stream_complex_char(self) -> Pin<Box<dyn Stream<Item = Vec<ComplexChar>> + 'a>> {
+        match self {
+            DynSampleStream::ComplexChar(s) => s,
+            _ => panic!("Expected ComplexChar"),
+        }
+    }
+    pub fn stream_float(self) -> Pin<Box<dyn Stream<Item = Vec<Float>> + 'a>> {
+        match self {
+            DynSampleStream::Float(s) => s,
+            _ => panic!("Expected Float"),
+        }
+    }
+    pub fn stream_s16(self) -> Pin<Box<dyn Stream<Item = Vec<S16>> + 'a>> {
+        match self {
+            DynSampleStream::S16(s) => s,
+            _ => panic!("Expected S16"),
+        }
+    }
+    pub fn stream_char(self) -> Pin<Box<dyn Stream<Item = Vec<Char>> + 'a>> {
+        match self {
+            DynSampleStream::Char(s) => s,
+            _ => panic!("Expected Char"),
+        }
+    }
+}
+
+pub trait IntoDynSampleStream<'a, T> {
+    fn into_dyn(self) -> DynSampleStream<'a>;
+}
+
+impl<'a, St> IntoDynSampleStream<'a, ComplexFloat> for St
+where
+    St: Stream<Item = Vec<ComplexFloat>> + 'a,
+{
+    fn into_dyn(self) -> DynSampleStream<'a> {
+        DynSampleStream::ComplexFloat(Box::pin(self))
+    }
+}
+
+impl<'a, St> IntoDynSampleStream<'a, ComplexS16> for St
+where
+    St: Stream<Item = Vec<ComplexS16>> + 'a,
+{
+    fn into_dyn(self) -> DynSampleStream<'a> {
+        DynSampleStream::ComplexS16(Box::pin(self))
+    }
+}
+
+impl<'a, St> IntoDynSampleStream<'a, ComplexChar> for St
+where
+    St: Stream<Item = Vec<ComplexChar>> + 'a,
+{
+    fn into_dyn(self) -> DynSampleStream<'a> {
+        DynSampleStream::ComplexChar(Box::pin(self))
+    }
+}
+
+impl<'a, St> IntoDynSampleStream<'a, Float> for St
+where
+    St: Stream<Item = Vec<Float>> + 'a,
+{
+    fn into_dyn(self) -> DynSampleStream<'a> {
+        DynSampleStream::Float(Box::pin(self))
+    }
+}
+
+impl<'a, St> IntoDynSampleStream<'a, S16> for St
+where
+    St: Stream<Item = Vec<S16>> + 'a,
+{
+    fn into_dyn(self) -> DynSampleStream<'a> {
+        DynSampleStream::S16(Box::pin(self))
+    }
+}
+
+impl<'a, St> IntoDynSampleStream<'a, Char> for St
+where
+    St: Stream<Item = Vec<Char>> + 'a,
+{
+    fn into_dyn(self) -> DynSampleStream<'a> {
+        DynSampleStream::Char(Box::pin(self))
     }
 }

@@ -2,13 +2,6 @@ pub mod bss;
 pub mod gen;
 pub mod sampletypes;
 
-#[derive(Copy, Clone)]
-pub enum BitDepth {
-    Char,
-    S16,
-    Float,
-}
-
 /*
 #[pin_project]
 pub struct BufferedSampleStream<St, T>
