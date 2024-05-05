@@ -380,26 +380,16 @@ pub enum DynSampleStream<'a> {
 
 impl<'a> DynSampleStream<'a> {
     pub fn deserialize(self, num_type: NumType, bit_depth: BitDepth) -> DynSampleStream<'a> {
-        match (self, bit_depth, num_type) {
-            (DynSampleStream::Bytes(s), BitDepth::Char, NumType::Real) => {
-                s.deserialize_char().into_dyn()
-            }
-            (DynSampleStream::Bytes(s), BitDepth::S16, NumType::Real) => {
-                s.deserialize_s16().into_dyn()
-            }
-            (DynSampleStream::Bytes(s), BitDepth::Float, NumType::Real) => {
-                s.deserialize_float().into_dyn()
-            }
-            (DynSampleStream::Bytes(s), BitDepth::Char, NumType::Complex) => {
-                s.deserialize_complex_char().into_dyn()
-            }
-            (DynSampleStream::Bytes(s), BitDepth::S16, NumType::Complex) => {
-                s.deserialize_complex_s16().into_dyn()
-            }
-            (DynSampleStream::Bytes(s), BitDepth::Float, NumType::Complex) => {
-                s.deserialize_complex_float().into_dyn()
-            }
-            (_, _, _) => panic!("Invalid conversion"),
+        match self {
+            DynSampleStream::Bytes(s) => match (num_type, bit_depth) {
+                (NumType::Real, BitDepth::Char) => s.deserialize_char().into_dyn(),
+                (NumType::Real, BitDepth::S16) => s.deserialize_s16().into_dyn(),
+                (NumType::Real, BitDepth::Float) => s.deserialize_float().into_dyn(),
+                (NumType::Complex, BitDepth::Char) => s.deserialize_complex_char().into_dyn(),
+                (NumType::Complex, BitDepth::S16) => s.deserialize_complex_s16().into_dyn(),
+                (NumType::Complex, BitDepth::Float) => s.deserialize_complex_float().into_dyn(),
+            },
+            _ => panic!("expected Bytes stream"),
         }
     }
 
