@@ -234,7 +234,5 @@ impl Pipeline<ComplexFloat> {
 }
 */
 /*
-pub fn source_stdin(buffer_size: usize) -> Pin<Box<dyn Stream<Item = Result<Bytes, Error>>>> {
-    Box::pin(ReaderStream::with_capacity(stdin(), buffer_size))
-}
+
 */

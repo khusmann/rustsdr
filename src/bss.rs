@@ -1,21 +1,33 @@
+use crate::gen;
 use std::pin::Pin;
+
+use tokio::io::stdin;
 use tokio::time;
 use tokio_stream::wrappers::IntervalStream;
 use tokio_stream::{Stream, StreamExt};
 use tokio_util::bytes::{Buf, BufMut, Bytes, BytesMut};
+use tokio_util::io::ReaderStream;
 
 use num_complex::Complex;
 use num_traits::Num;
 
 use crate::sampletypes::*;
 
-pub fn from_sample_fn<F, T>(mut f: F, rate: u32, buffer_size: usize) -> impl Stream<Item = Vec<T>>
+pub fn stream_sample_fn<F, T>(
+    mut f: F,
+    rate: u32,
+    sample_buffer_size: usize,
+) -> impl Stream<Item = Vec<T>>
 where
     F: FnMut() -> T,
 {
-    let delay_period = buffer_size as f32 / rate as f32;
+    let delay_period = sample_buffer_size as f32 / rate as f32;
     let interval = time::interval(time::Duration::from_secs_f32(delay_period));
-    IntervalStream::new(interval).map(move |_| (0..buffer_size).map(|_| f()).collect())
+    IntervalStream::new(interval).map(move |_| (0..sample_buffer_size).map(|_| f()).collect())
+}
+
+pub fn stream_stdin_bytes(buffer_size: usize) -> impl Stream<Item = Bytes> {
+    ReaderStream::with_capacity(stdin(), buffer_size).map(|v| v.unwrap())
 }
 pub trait BufferedSampleStream {
     type Sample;
@@ -379,6 +391,72 @@ pub enum DynSampleStream<'a> {
 }
 
 impl<'a> DynSampleStream<'a> {
+    pub fn source_rand(
+        rate: u32,
+        sample_buffer_size: usize,
+        num_type: NumType,
+        bit_depth: BitDepth,
+    ) -> DynSampleStream<'a> {
+        let stream = stream_sample_fn(gen::rand_fn(), rate, sample_buffer_size).into_dyn();
+
+        let stream = match num_type {
+            NumType::Real => stream.realpart(),
+            NumType::Complex => stream,
+        };
+
+        stream.convert(bit_depth)
+    }
+
+    pub fn source_tone(
+        freq: u32,
+        rate: u32,
+        amplitude: f32,
+        sample_buffer_size: usize,
+        num_type: NumType,
+        bit_depth: BitDepth,
+    ) -> DynSampleStream<'a> {
+        let stream = stream_sample_fn(
+            gen::tone_fn(freq, rate, amplitude),
+            rate,
+            sample_buffer_size,
+        )
+        .into_dyn();
+
+        let stream = match num_type {
+            NumType::Real => stream.realpart(),
+            NumType::Complex => stream,
+        };
+
+        stream.convert(bit_depth)
+    }
+
+    pub fn source_stdin(
+        sample_buffer_size: usize,
+        num_type: NumType,
+        bit_depth: BitDepth,
+    ) -> DynSampleStream<'a> {
+        match (num_type, bit_depth) {
+            (NumType::Real, BitDepth::Char) => stream_stdin_bytes(sample_buffer_size)
+                .deserialize_char()
+                .into_dyn(),
+            (NumType::Real, BitDepth::S16) => stream_stdin_bytes(sample_buffer_size * 2)
+                .deserialize_s16()
+                .into_dyn(),
+            (NumType::Real, BitDepth::Float) => stream_stdin_bytes(sample_buffer_size * 4)
+                .deserialize_float()
+                .into_dyn(),
+            (NumType::Complex, BitDepth::Char) => stream_stdin_bytes(sample_buffer_size * 2)
+                .deserialize_complex_char()
+                .into_dyn(),
+            (NumType::Complex, BitDepth::S16) => stream_stdin_bytes(sample_buffer_size * 4)
+                .deserialize_complex_s16()
+                .into_dyn(),
+            (NumType::Complex, BitDepth::Float) => stream_stdin_bytes(sample_buffer_size * 8)
+                .deserialize_complex_float()
+                .into_dyn(),
+        }
+    }
+
     pub fn deserialize(self, num_type: NumType, bit_depth: BitDepth) -> DynSampleStream<'a> {
         match self {
             DynSampleStream::Bytes(s) => match (num_type, bit_depth) {

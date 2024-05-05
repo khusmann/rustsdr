@@ -30,6 +30,21 @@ struct Cli {
 }
 
 #[derive(ValueEnum, Debug, Clone)]
+enum NumTypeOpt {
+    Real,
+    Complex,
+}
+
+impl From<NumTypeOpt> for bss::NumType {
+    fn from(opt: NumTypeOpt) -> bss::NumType {
+        match opt {
+            NumTypeOpt::Real => bss::NumType::Real,
+            NumTypeOpt::Complex => bss::NumType::Complex,
+        }
+    }
+}
+
+#[derive(ValueEnum, Debug, Clone)]
 enum BitDepthOpt {
     Char,
     S16,
@@ -80,7 +95,7 @@ fn parse_amplitude(s: &str) -> Result<f32, String> {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    let pipe = bss::from_sample_fn(gen::tone_fn(440, 48000, 1.0), 10, 10)
+    let pipe = bss::stream_sample_fn(gen::tone_fn(440, 48000, 1.0), 10, 10)
         .realpart()
         .lift_complex()
         .convert_to_char()
