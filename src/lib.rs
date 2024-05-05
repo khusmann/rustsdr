@@ -7,8 +7,8 @@ use std::ops::{Deref, DerefMut};
 use tokio::io::stdin;
 use tokio::time;
 
+use futures::stream::{Map, Stream, StreamExt};
 use tokio_stream::wrappers::IntervalStream;
-use tokio_stream::{Stream, StreamExt};
 
 use num_complex::Complex;
 use tokio_util::bytes::{Buf, BufMut, Bytes, BytesMut};
@@ -34,6 +34,182 @@ pub enum BitDepth {
     S16,
     Float,
 }
+
+#[pin_project]
+pub struct BufferedSampleStream<St, T>
+where
+    St: Stream<Item = Vec<T>>,
+{
+    #[pin]
+    stream: St,
+}
+
+pub fn from_sample_fn<F, T>(
+    mut f: F,
+    rate: u32,
+    buffer_size: usize,
+) -> BufferedSampleStream<impl Stream<Item = Vec<T>>, T>
+where
+    F: FnMut() -> T,
+{
+    let delay_period = buffer_size as f32 / rate as f32;
+    let interval = time::interval(time::Duration::from_secs_f32(delay_period));
+    let s = IntervalStream::new(interval).map(move |_| (0..buffer_size).map(|_| f()).collect());
+    BufferedSampleStream::new(s)
+}
+
+impl<St, T> BufferedSampleStream<St, T>
+where
+    St: Stream<Item = Vec<T>>,
+{
+    pub fn new(stream: St) -> Self {
+        Self { stream }
+    }
+
+    pub fn map_chunks<R, F>(self, f: F) -> BufferedSampleStream<impl Stream<Item = Vec<R>>, R>
+    where
+        F: FnMut(Vec<T>) -> Vec<R>,
+    {
+        BufferedSampleStream::new(self.stream.map(f))
+    }
+
+    pub fn map_samples<R, F>(self, mut f: F) -> BufferedSampleStream<impl Stream<Item = Vec<R>>, R>
+    where
+        F: FnMut(T) -> R,
+    {
+        self.map_chunks(move |chunk| chunk.into_iter().map(|v| f(v)).collect())
+    }
+
+    pub fn foo() {
+        println!("asdf");
+    }
+}
+
+impl<St, T> BufferedSampleStream<St, Complex<T>>
+where
+    St: Stream<Item = Vec<Complex<T>>>,
+{
+    pub fn map_sample_args<R, F>(
+        self,
+        mut f: F,
+    ) -> BufferedSampleStream<impl Stream<Item = Vec<Complex<R>>>, Complex<R>>
+    where
+        F: FnMut(T) -> R,
+    {
+        self.map_samples(move |v| Complex::new(f(v.re), f(v.im)))
+    }
+}
+
+impl<St> BufferedSampleStream<St, ComplexFloat>
+where
+    St: Stream<Item = Vec<ComplexFloat>>,
+{
+    pub fn convert_to_s16(
+        self,
+    ) -> BufferedSampleStream<impl Stream<Item = Vec<ComplexS16>>, ComplexS16> {
+        self.map_sample_args(float_to_s16)
+    }
+
+    pub fn convert_to_char(
+        self,
+    ) -> BufferedSampleStream<impl Stream<Item = Vec<ComplexChar>>, ComplexChar> {
+        self.map_sample_args(float_to_char)
+    }
+}
+
+impl<St> BufferedSampleStream<St, ComplexS16>
+where
+    St: Stream<Item = Vec<ComplexS16>>,
+{
+    pub fn convert_to_float(
+        self,
+    ) -> BufferedSampleStream<impl Stream<Item = Vec<ComplexFloat>>, ComplexFloat> {
+        self.map_sample_args(s16_to_float)
+    }
+
+    pub fn convert_to_char(
+        self,
+    ) -> BufferedSampleStream<impl Stream<Item = Vec<ComplexChar>>, ComplexChar> {
+        self.map_sample_args(s16_to_char)
+    }
+}
+
+impl<St> BufferedSampleStream<St, ComplexChar>
+where
+    St: Stream<Item = Vec<ComplexChar>>,
+{
+    pub fn convert_to_float(
+        self,
+    ) -> BufferedSampleStream<impl Stream<Item = Vec<ComplexFloat>>, ComplexFloat> {
+        self.map_sample_args(char_to_float)
+    }
+
+    pub fn convert_to_s16(
+        self,
+    ) -> BufferedSampleStream<impl Stream<Item = Vec<ComplexS16>>, ComplexS16> {
+        self.map_sample_args(char_to_s16)
+    }
+}
+
+impl<St> BufferedSampleStream<St, Float>
+where
+    St: Stream<Item = Vec<Float>>,
+{
+    pub fn convert_to_s16(self) -> BufferedSampleStream<impl Stream<Item = Vec<S16>>, S16> {
+        self.map_samples(float_to_s16)
+    }
+
+    pub fn convert_to_char(self) -> BufferedSampleStream<impl Stream<Item = Vec<Char>>, Char> {
+        self.map_samples(float_to_char)
+    }
+}
+
+impl<St> BufferedSampleStream<St, S16>
+where
+    St: Stream<Item = Vec<S16>>,
+{
+    pub fn convert_to_float(self) -> BufferedSampleStream<impl Stream<Item = Vec<Float>>, Float> {
+        self.map_samples(s16_to_float)
+    }
+
+    pub fn convert_to_char(self) -> BufferedSampleStream<impl Stream<Item = Vec<Char>>, Char> {
+        self.map_samples(s16_to_char)
+    }
+}
+
+impl<St> BufferedSampleStream<St, Char>
+where
+    St: Stream<Item = Vec<Char>>,
+{
+    pub fn convert_to_float(self) -> BufferedSampleStream<impl Stream<Item = Vec<Float>>, Float> {
+        self.map_samples(char_to_float)
+    }
+
+    pub fn convert_to_s16(self) -> BufferedSampleStream<impl Stream<Item = Vec<S16>>, S16> {
+        self.map_samples(char_to_s16)
+    }
+}
+
+impl<St, T> Stream for BufferedSampleStream<St, T>
+where
+    St: Stream<Item = Vec<T>>,
+{
+    type Item = Vec<T>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
+        self.project().stream.poll_next(cx)
+    }
+}
+
+impl<St, T> From<St> for BufferedSampleStream<St, T>
+where
+    St: Stream<Item = Vec<T>>,
+{
+    fn from(stream: St) -> Self {
+        Self { stream }
+    }
+}
+
 /*
 pub struct Pipeline<T> {
     inner: Pin<Box<dyn Stream<Item = Vec<T>>>>,
@@ -107,33 +283,6 @@ pub fn tone_sample_gen(freq: u32, rate: u32, amplitude: f32) -> impl FnMut() -> 
 pub fn rand_sample_gen() -> impl FnMut() -> Complex<f32> {
     let mut rng = rand::thread_rng();
     move || Complex::new(rng.gen(), rng.gen())
-}
-
-pub fn buffered_sample_stream<'a, F, R>(
-    mut f: F,
-    rate: u32,
-    buffer_size: usize,
-) -> impl Stream<Item = Vec<R>>
-where
-    F: FnMut() -> R,
-{
-    let delay_period = buffer_size as f32 / rate as f32;
-    let interval = time::interval(time::Duration::from_secs_f32(delay_period));
-    IntervalStream::new(interval).map(move |_| (0..buffer_size).map(|_| f()).collect())
-}
-
-pub fn lift_vec<F, T, R>(mut f: F) -> impl FnMut(Vec<T>) -> Vec<R>
-where
-    F: FnMut(T) -> R,
-{
-    move |v| v.into_iter().map(|x| f(x)).collect()
-}
-
-pub fn lift_complex<F, T, R>(mut f: F) -> impl FnMut(Complex<T>) -> Complex<R>
-where
-    F: FnMut(T) -> R,
-{
-    move |c| Complex::new(f(c.re), f(c.im))
 }
 
 pub fn char_to_s16(v: u8) -> i16 {
