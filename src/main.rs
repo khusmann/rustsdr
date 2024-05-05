@@ -89,7 +89,11 @@ async fn main() -> std::io::Result<()> {
         .into_dyn()
         .convert(BitDepthOpt::Float.into());
 
-    let mut stream = pipe.serialize().deserialize_char();
+    let mut stream = pipe
+        .stream_bytes()
+        .into_dyn()
+        .deserialize(bss::NumType::Real, bss::BitDepth::Float)
+        .stream_bytes();
 
     while let Some(v) = stream.next().await {
         println!("{:?}", v)

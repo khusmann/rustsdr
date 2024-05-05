@@ -363,6 +363,11 @@ pub enum BitDepth {
     Float,
 }
 
+pub enum NumType {
+    Real,
+    Complex,
+}
+
 pub enum DynSampleStream<'a> {
     ComplexFloat(Pin<Box<dyn Stream<Item = Vec<ComplexFloat>> + 'a>>),
     ComplexS16(Pin<Box<dyn Stream<Item = Vec<ComplexS16>> + 'a>>),
@@ -370,17 +375,31 @@ pub enum DynSampleStream<'a> {
     Float(Pin<Box<dyn Stream<Item = Vec<Float>> + 'a>>),
     S16(Pin<Box<dyn Stream<Item = Vec<S16>> + 'a>>),
     Char(Pin<Box<dyn Stream<Item = Vec<Char>> + 'a>>),
+    Bytes(Pin<Box<dyn Stream<Item = Bytes> + 'a>>),
 }
 
 impl<'a> DynSampleStream<'a> {
-    pub fn serialize(self) -> Pin<Box<dyn Stream<Item = Bytes> + 'a>> {
-        match self {
-            DynSampleStream::ComplexFloat(s) => Box::pin(s.serialize()),
-            DynSampleStream::ComplexS16(s) => Box::pin(s.serialize()),
-            DynSampleStream::ComplexChar(s) => Box::pin(s.serialize()),
-            DynSampleStream::Float(s) => Box::pin(s.serialize()),
-            DynSampleStream::S16(s) => Box::pin(s.serialize()),
-            DynSampleStream::Char(s) => Box::pin(s.serialize()),
+    pub fn deserialize(self, num_type: NumType, bit_depth: BitDepth) -> DynSampleStream<'a> {
+        match (self, bit_depth, num_type) {
+            (DynSampleStream::Bytes(s), BitDepth::Char, NumType::Real) => {
+                s.deserialize_char().into_dyn()
+            }
+            (DynSampleStream::Bytes(s), BitDepth::S16, NumType::Real) => {
+                s.deserialize_s16().into_dyn()
+            }
+            (DynSampleStream::Bytes(s), BitDepth::Float, NumType::Real) => {
+                s.deserialize_float().into_dyn()
+            }
+            (DynSampleStream::Bytes(s), BitDepth::Char, NumType::Complex) => {
+                s.deserialize_complex_char().into_dyn()
+            }
+            (DynSampleStream::Bytes(s), BitDepth::S16, NumType::Complex) => {
+                s.deserialize_complex_s16().into_dyn()
+            }
+            (DynSampleStream::Bytes(s), BitDepth::Float, NumType::Complex) => {
+                s.deserialize_complex_float().into_dyn()
+            }
+            (_, _, _) => panic!("Invalid conversion"),
         }
     }
 
@@ -408,6 +427,18 @@ impl<'a> DynSampleStream<'a> {
             (DynSampleStream::Char(s), BitDepth::Float) => s.convert_to_float().into_dyn(),
             (DynSampleStream::Char(s), BitDepth::S16) => s.convert_to_s16().into_dyn(),
             (s, _) => s,
+        }
+    }
+
+    pub fn stream_bytes(self) -> Pin<Box<dyn Stream<Item = Bytes> + 'a>> {
+        match self {
+            DynSampleStream::ComplexFloat(s) => Box::pin(s.serialize()),
+            DynSampleStream::ComplexS16(s) => Box::pin(s.serialize()),
+            DynSampleStream::ComplexChar(s) => Box::pin(s.serialize()),
+            DynSampleStream::Float(s) => Box::pin(s.serialize()),
+            DynSampleStream::S16(s) => Box::pin(s.serialize()),
+            DynSampleStream::Char(s) => Box::pin(s.serialize()),
+            DynSampleStream::Bytes(s) => s,
         }
     }
 
@@ -504,5 +535,14 @@ where
 {
     fn into_dyn(self) -> DynSampleStream<'a> {
         DynSampleStream::Char(Box::pin(self))
+    }
+}
+
+impl<'a, St> IntoDynSampleStream<'a, Bytes> for St
+where
+    St: Stream<Item = Bytes> + 'a,
+{
+    fn into_dyn(self) -> DynSampleStream<'a> {
+        DynSampleStream::Bytes(Box::pin(self))
     }
 }
