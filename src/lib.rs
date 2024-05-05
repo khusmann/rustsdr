@@ -10,7 +10,7 @@ use tokio::time;
 use tokio_stream::wrappers::IntervalStream;
 use tokio_stream::{Stream, StreamExt};
 
-use num_complex::{Complex, ComplexFloat};
+use num_complex::Complex;
 use tokio_util::bytes::{Buf, BufMut, Bytes, BytesMut};
 use tokio_util::io::ReaderStream;
 
@@ -20,12 +20,12 @@ use itertools::Itertools;
 
 use pin_project::pin_project;
 
-type ComplexFloatChunk = Vec<Complex<f32>>;
-type ComplexS16Chunk = Vec<Complex<i16>>;
-type ComplexCharChunk = Vec<Complex<u8>>;
-type FloatChunk = Vec<f32>;
-type S16Chunk = Vec<i16>;
-type CharChunk = Vec<u8>;
+type ComplexFloat = Complex<f32>;
+type ComplexS16 = Complex<i16>;
+type ComplexChar = Complex<u8>;
+type Float = f32;
+type S16 = i16;
+type Char = u8;
 
 #[derive(Copy, Clone)]
 pub enum BitDepth {
@@ -35,20 +35,20 @@ pub enum BitDepth {
 }
 
 pub struct Pipeline<T> {
-    inner: Pin<Box<dyn Stream<Item = T>>>,
+    inner: Pin<Box<dyn Stream<Item = Vec<T>>>>,
 }
 
-impl<T, Ch> From<T> for Pipeline<Ch>
+impl<S, T> From<S> for Pipeline<T>
 where
-    T: Stream<Item = Ch> + 'static,
+    S: Stream<Item = Vec<T>> + 'static,
 {
-    fn from(s: T) -> Self {
+    fn from(s: S) -> Self {
         Self { inner: Box::pin(s) }
     }
 }
 
 impl<T> Deref for Pipeline<T> {
-    type Target = Pin<Box<dyn Stream<Item = T>>>;
+    type Target = Pin<Box<dyn Stream<Item = Vec<T>>>>;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
@@ -63,32 +63,31 @@ impl<T> DerefMut for Pipeline<T> {
 
 // map_chunks
 // map_values
-// map_complex_values
 
-impl Pipeline<ComplexFloatChunk> {
-    pub fn map_chunks<T>(self, f: impl FnMut(ComplexFloatChunk) -> T + 'static) -> Pipeline<T> {
+impl<T> Pipeline<T>
+where
+    T: 'static,
+{
+    pub fn map_chunks<R>(self, f: impl FnMut(Vec<T>) -> Vec<R> + 'static) -> Pipeline<R> {
         Pipeline::from(self.inner.map(f))
     }
 
-    pub fn map_values<T>(self, mut f: impl FnMut(Complex<f32>) -> T + 'static) -> Pipeline<Vec<T>> {
+    pub fn map_values<R>(self, mut f: impl FnMut(T) -> R + 'static) -> Pipeline<R> {
         self.map_chunks(move |chunk| chunk.into_iter().map(|v| f(v)).collect())
     }
+}
 
+impl Pipeline<ComplexFloat> {
     pub fn convert_to_float(self) -> Self {
         self
     }
 
-    pub fn convert_to_s16(self) -> Pipeline<ComplexS16Chunk> {
+    pub fn convert_to_s16(self) -> Pipeline<ComplexS16> {
         self.map_values(lift_complex(float_to_s16))
     }
 
-    pub fn convert_to_char(self) -> Pipeline<ComplexCharChunk> {
-        Pipeline::from(self.inner.map(|chunk| {
-            chunk
-                .iter()
-                .map(|&c| Complex::new(float_to_char(c.re), float_to_char(c.im)))
-                .collect()
-        }))
+    pub fn convert_to_char(self) -> Pipeline<ComplexChar> {
+        self.map_values(lift_complex(float_to_char))
     }
 }
 
