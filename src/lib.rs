@@ -14,6 +14,7 @@ use num_complex::Complex;
 use tokio_util::bytes::{Buf, BufMut, Bytes, BytesMut};
 use tokio_util::io::ReaderStream;
 
+use core::task::{Context, Poll};
 use std;
 
 use itertools::Itertools;
@@ -64,6 +65,44 @@ impl<T> DerefMut for Pipeline<T> {
 // map_chunks
 // map_values
 
+pub trait BufferedSampleStream {
+    type Sample;
+    /*
+    fn poll_next_chunk(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Vec<Self::Sample>>>;
+    */
+
+    fn map_samples<R, F>(self, f: F) -> impl Stream<Item = Vec<R>>
+    where
+        F: FnMut(Self::Sample) -> R;
+}
+
+impl<S, T> BufferedSampleStream for S
+where
+    S: Stream<Item = Vec<T>>,
+{
+    type Sample = T;
+
+    /*
+    fn poll_next_chunk(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Vec<Self::Sample>>> {
+        self.poll_next(cx)
+    }
+    */
+
+    fn map_samples<R, F>(self, mut f: F) -> impl Stream<Item = Vec<R>>
+    where
+        F: FnMut(Self::Sample) -> R,
+    {
+        self.map(move |chunk| chunk.into_iter().map(|v| f(v)).collect())
+    }
+}
+
+/*
 impl<T> Pipeline<T>
 where
     T: 'static,
@@ -90,7 +129,7 @@ impl Pipeline<ComplexFloat> {
         self.map_values(lift_complex(float_to_char))
     }
 }
-
+*/
 /*
 pub fn source_stdin(buffer_size: usize) -> Pin<Box<dyn Stream<Item = Result<Bytes, Error>>>> {
     Box::pin(ReaderStream::with_capacity(stdin(), buffer_size))
@@ -122,6 +161,13 @@ where
     let delay_period = buffer_size as f32 / rate as f32;
     let interval = time::interval(time::Duration::from_secs_f32(delay_period));
     IntervalStream::new(interval).map(move |_| (0..buffer_size).map(|_| f()).collect())
+}
+
+pub fn lift_vec<F, T, R>(mut f: F) -> impl FnMut(Vec<T>) -> Vec<R>
+where
+    F: FnMut(T) -> R,
+{
+    move |v| v.into_iter().map(|x| f(x)).collect()
 }
 
 pub fn lift_complex<F, T, R>(mut f: F) -> impl FnMut(Complex<T>) -> Complex<R>
