@@ -4,7 +4,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 
 use rustsdr::{
     from_sample_fn, tone_sample_gen, BufferedSampleStream, ComplexBufferedSampleStream,
-    RealBufferedSampleStream,
+    ConvertComplexStream, ConvertRealStream, RealBufferedSampleStream,
 };
 
 use tokio_stream::StreamExt;
@@ -80,7 +80,10 @@ fn parse_amplitude(s: &str) -> Result<f32, String> {
 async fn main() -> std::io::Result<()> {
     let mut stream = from_sample_fn(tone_sample_gen(440, 48000, 1.0), 10, 10)
         .realpart()
-        .lift_complex();
+        .lift_complex()
+        .convert_to_char()
+        .realpart()
+        .convert_to_s16();
 
     while let Some(v) = stream.next().await {
         println!("{:?}", v)
