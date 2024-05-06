@@ -4,19 +4,15 @@ use core::panic;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
-use bss::{
-    ComplexBufferedSampleStream, ConvertComplexStream, ConvertRealStream, DeserializeStream,
-    IntoDynSampleStream, RealBufferedSampleStream,
-};
+use bss::DynSampleStream;
 
 use tokio_stream::StreamExt;
 
 use tokio::io::{stdout, AsyncWriteExt};
-use tokio::pin;
 
 /*
-cargo run -- tone -a 0.5 -f 440 -r 48000 |
-cargo run -- convert --input char --output s16 |
+cargo run -- -i float -n real tone -r 48000 -f 440 -a 1 |
+cargo run -- -i float -n real convert --output s16 |
 mplayer -cache 1024 -quiet -rawaudio samplesize=2:channels=1:rate=48000 -demuxer rawaudio -
 */
 
@@ -25,11 +21,15 @@ mplayer -cache 1024 -quiet -rawaudio samplesize=2:channels=1:rate=48000 -demuxer
 struct Cli {
     #[arg(short, long, default_value_t = 1024)]
     buffer_size: usize,
+    #[arg(short, long, value_enum)]
+    input: BitDepthOpt,
+    #[arg(short, long, value_enum)]
+    num_type: NumTypeOpt,
     #[command(subcommand)]
     command: Option<Commands>,
 }
 
-#[derive(ValueEnum, Debug, Clone)]
+#[derive(ValueEnum, Debug, Clone, Copy)]
 enum NumTypeOpt {
     Real,
     Complex,
@@ -44,7 +44,7 @@ impl From<NumTypeOpt> for bss::NumType {
     }
 }
 
-#[derive(ValueEnum, Debug, Clone)]
+#[derive(ValueEnum, Debug, Clone, Copy)]
 enum BitDepthOpt {
     Char,
     S16,
@@ -77,8 +77,6 @@ enum Commands {
     },
     Convert {
         #[arg(short, long, value_enum)]
-        input: BitDepthOpt,
-        #[arg(short, long, value_enum)]
         output: BitDepthOpt,
     },
 }
@@ -95,56 +93,38 @@ fn parse_amplitude(s: &str) -> Result<f32, String> {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    let pipe = bss::stream_sample_fn(gen::tone_fn(440, 48000, 1.0), 10, 10)
-        .realpart()
-        .lift_complex()
-        .convert_to_char()
-        .realpart()
-        .convert_to_s16()
-        .into_dyn()
-        .convert(BitDepthOpt::Float.into());
+    let cli = Cli::parse();
 
-    let mut stream = pipe
-        .stream_bytes()
-        .into_dyn()
-        .deserialize(bss::NumType::Real, bss::BitDepth::Float)
-        .stream_bytes();
+    let pipeline = match &cli.command {
+        Some(Commands::Tone {
+            freq,
+            rate,
+            amplitude,
+        }) => DynSampleStream::source_tone(
+            *freq,
+            *rate,
+            *amplitude,
+            cli.buffer_size,
+            cli.num_type.into(),
+            cli.input.into(),
+        ),
+        Some(Commands::Noise { rate }) => DynSampleStream::source_noise(
+            *rate,
+            cli.buffer_size,
+            cli.num_type.into(),
+            cli.input.into(),
+        ),
+        Some(Commands::Convert { output }) => {
+            DynSampleStream::source_stdin(cli.buffer_size, cli.num_type.into(), cli.input.into())
+                .convert(output.clone().into())
+        }
+        None => panic!("No subcommand provided"),
+    };
+
+    let mut stream = pipeline.stream_bytes();
 
     while let Some(v) = stream.next().await {
-        println!("{:?}", v)
+        stdout().write_all(v.as_ref()).await?;
     }
-    /*
-        let cli = Cli::parse();
-
-        let stream = match &cli.command {
-            Some(Commands::Tone {
-                freq,
-                rate,
-                amplitude,
-            }) => source_tone(*freq, *rate, *amplitude, cli.buffer_size),
-            Some(Commands::Noise { rate }) => source_noise(*rate, cli.buffer_size),
-            Some(_) => source_stdin(cli.buffer_size),
-            None => panic!("No subcommand provided"),
-        };
-
-        let mut stream = match &cli.command {
-            Some(Commands::Convert { input, output }) => {
-                Box::pin(stream.map(|v| v.map(convert_fn(input.to_bitdepth(), output.to_bitdepth()))))
-            }
-            Some(_) => stream,
-            None => panic!("No subcommand provided"),
-        };
-
-        while let Some(v) = stream.next().await {
-            match v {
-                Ok(v) => {
-                    stdout().write_all(&v).await?;
-                }
-                Err(e) => {
-                    return Err(e);
-                }
-            }
-        }
-    */
     Ok(())
 }

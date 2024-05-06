@@ -27,7 +27,11 @@ where
 }
 
 pub fn stream_stdin_bytes(buffer_size: usize) -> impl Stream<Item = Bytes> {
-    ReaderStream::with_capacity(stdin(), buffer_size).map(|v| v.unwrap())
+    ReaderStream::with_capacity(stdin(), buffer_size).map(|v| {
+        let x = v.unwrap();
+        //eprint!("read {} bytes\n", x.len());
+        x
+    })
 }
 pub trait BufferedSampleStream {
     type Sample;
@@ -226,7 +230,7 @@ where
     fn serialize(self) -> impl Stream<Item = Bytes> {
         self.map(|chunk| {
             let mut buf = BytesMut::with_capacity(chunk.len() * 4);
-            chunk.iter().for_each(|&v| buf.put_f32(v));
+            chunk.iter().for_each(|&v| buf.put_f32_le(v));
             buf.freeze()
         })
     }
@@ -239,7 +243,7 @@ where
     fn serialize(self) -> impl Stream<Item = Bytes> {
         self.map(|chunk| {
             let mut buf = BytesMut::with_capacity(chunk.len() * 2);
-            chunk.iter().for_each(|&v| buf.put_i16(v));
+            chunk.iter().for_each(|&v| buf.put_i16_le(v));
             buf.freeze()
         })
     }
@@ -266,8 +270,8 @@ where
         self.map(|chunk| {
             let mut buf = BytesMut::with_capacity(chunk.len() * 8);
             chunk.iter().for_each(|v| {
-                buf.put_f32(v.re);
-                buf.put_f32(v.im);
+                buf.put_f32_le(v.re);
+                buf.put_f32_le(v.im);
             });
             buf.freeze()
         })
@@ -282,8 +286,8 @@ where
         self.map(|chunk| {
             let mut buf = BytesMut::with_capacity(chunk.len() * 4);
             chunk.iter().for_each(|v| {
-                buf.put_i16(v.re);
-                buf.put_i16(v.im);
+                buf.put_i16_le(v.re);
+                buf.put_i16_le(v.im);
             });
             buf.freeze()
         })
@@ -314,7 +318,7 @@ where
         self.map(|mut chunk| {
             let mut result = Vec::with_capacity(chunk.len() / 4);
             while chunk.has_remaining() {
-                result.push(chunk.get_f32());
+                result.push(chunk.get_f32_le());
             }
             result
         })
@@ -323,7 +327,7 @@ where
         self.map(|mut chunk| {
             let mut result = Vec::with_capacity(chunk.len() / 2);
             while chunk.has_remaining() {
-                result.push(chunk.get_i16());
+                result.push(chunk.get_i16_le());
             }
             result
         })
@@ -341,7 +345,7 @@ where
         self.map(|mut chunk| {
             let mut result = Vec::with_capacity(chunk.len() / 8);
             while chunk.has_remaining() {
-                result.push(Complex::new(chunk.get_f32(), chunk.get_f32()));
+                result.push(Complex::new(chunk.get_f32_le(), chunk.get_f32_le()));
             }
             result
         })
@@ -350,7 +354,7 @@ where
         self.map(|mut chunk| {
             let mut result = Vec::with_capacity(chunk.len() / 4);
             while chunk.has_remaining() {
-                result.push(Complex::new(chunk.get_i16(), chunk.get_i16()));
+                result.push(Complex::new(chunk.get_i16_le(), chunk.get_i16_le()));
             }
             result
         })
@@ -368,13 +372,14 @@ where
 
 ////
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum BitDepth {
     Char,
     S16,
     Float,
 }
 
+#[derive(Copy, Clone, Debug)]
 pub enum NumType {
     Real,
     Complex,
@@ -391,7 +396,7 @@ pub enum DynSampleStream<'a> {
 }
 
 impl<'a> DynSampleStream<'a> {
-    pub fn source_rand(
+    pub fn source_noise(
         rate: u32,
         sample_buffer_size: usize,
         num_type: NumType,
