@@ -1,34 +1,75 @@
 use num_complex::Complex;
 
-pub type ComplexFloat = Complex<f32>;
-pub type ComplexS16 = Complex<i16>;
-pub type ComplexChar = Complex<u8>;
-pub type Float = f32;
-pub type S16 = i16;
-pub type Char = u8;
-
-pub fn char_to_s16(v: u8) -> i16 {
-    ((v as i32 * u16::MAX as i32 / u8::MAX as i32) + i16::MIN as i32) as i16
+pub trait ConvertSampleFrom<T> {
+    fn convert_sample_from(value: T) -> Self;
 }
 
-pub fn s16_to_char(v: i16) -> u8 {
-    ((v as i32 - i16::MIN as i32) * u8::MAX as i32 / (u16::MAX as i32)) as u8
+pub trait ConvertSampleInto<T> {
+    fn convert_sample_into(self) -> T;
 }
 
-pub fn char_to_float(v: u8) -> f32 {
-    v as f32 / (u8::MAX as f32) * 2.0 - 1.0
+impl<T, U> ConvertSampleInto<U> for T
+where
+    U: ConvertSampleFrom<T>,
+{
+    fn convert_sample_into(self) -> U {
+        U::convert_sample_from(self)
+    }
 }
 
-pub fn float_to_char(v: f32) -> u8 {
-    (v * (u8::MAX as f32) / 2.0 - i8::MIN as f32) as u8
+impl<T, U> ConvertSampleFrom<Complex<T>> for Complex<U>
+where
+    U: ConvertSampleFrom<T>,
+{
+    fn convert_sample_from(value: Complex<T>) -> Self {
+        Complex::new(
+            U::convert_sample_from(value.re),
+            U::convert_sample_from(value.im),
+        )
+    }
 }
 
-pub fn s16_to_float(v: i16) -> f32 {
-    v as f32 / (i16::MAX as f32)
+impl ConvertSampleFrom<i16> for u8 {
+    fn convert_sample_from(value: i16) -> u8 {
+        ((value as i32 - i16::MIN as i32) * u8::MAX as i32 / (u16::MAX as i32)) as u8
+    }
 }
 
-pub fn float_to_s16(v: f32) -> i16 {
-    (v * (i16::MAX as f32)) as i16
+impl ConvertSampleFrom<u8> for i16 {
+    fn convert_sample_from(value: u8) -> i16 {
+        ((value as i32 * u16::MAX as i32 / u8::MAX as i32) + i16::MIN as i32) as i16
+    }
+}
+
+impl ConvertSampleFrom<f32> for u8 {
+    fn convert_sample_from(value: f32) -> u8 {
+        (value * (u8::MAX as f32) / 2.0 - i8::MIN as f32) as u8
+    }
+}
+
+impl ConvertSampleFrom<u8> for f32 {
+    fn convert_sample_from(value: u8) -> f32 {
+        value as f32 / (u8::MAX as f32) * 2.0 - 1.0
+    }
+}
+
+impl ConvertSampleFrom<f32> for i16 {
+    fn convert_sample_from(value: f32) -> i16 {
+        (value * (i16::MAX as f32)) as i16
+    }
+}
+
+impl ConvertSampleFrom<i16> for f32 {
+    fn convert_sample_from(value: i16) -> f32 {
+        value as f32 / (i16::MAX as f32)
+    }
+}
+
+pub fn convert_sample_buf<T, U>(a: &[T]) -> Vec<U>
+where
+    T: ConvertSampleInto<U> + Copy,
+{
+    a.iter().map(|v| (*v).convert_sample_into()).collect()
 }
 
 #[cfg(test)]
@@ -37,43 +78,25 @@ mod tests {
 
     #[test]
     fn convert_char_s16() {
-        assert_eq!(char_to_s16(0), i16::MIN);
-        assert_eq!(char_to_s16(128), 128);
-        assert_eq!(char_to_s16(255), i16::MAX);
-    }
-
-    #[test]
-    fn convert_s16_char() {
-        assert_eq!(s16_to_char(i16::MIN), 0);
-        assert_eq!(s16_to_char(128), 128);
-        assert_eq!(s16_to_char(i16::MAX), 255);
+        let a = vec![0u8, 128u8, 255u8];
+        let b = vec![i16::MIN, 128i16, i16::MAX];
+        assert_eq!(a, convert_sample_buf::<i16, u8>(&b));
+        assert_eq!(b, convert_sample_buf::<u8, i16>(&a));
     }
 
     #[test]
     fn convert_char_float() {
-        assert_eq!(char_to_float(0), -1.0);
-        assert_eq!(char_to_float(51), -0.6);
-        assert_eq!(char_to_float(255), 1.0);
-    }
-
-    #[test]
-    fn convert_float_char() {
-        assert_eq!(float_to_char(-1.0), 0);
-        assert_eq!(float_to_char(-0.6), 51);
-        assert_eq!(float_to_char(1.0), 255);
+        let a = vec![0u8, 51u8, 255u8];
+        let b = vec![-1.0f32, -0.6f32, 1.0f32];
+        assert_eq!(a, convert_sample_buf::<f32, u8>(&b));
+        assert_eq!(b, convert_sample_buf::<u8, f32>(&a));
     }
 
     #[test]
     fn convert_s16_float() {
-        assert_eq!(s16_to_float(i16::MIN + 1), -1.0);
-        assert_eq!(s16_to_float(0), 0.0);
-        assert_eq!(s16_to_float(i16::MAX), 1.0);
-    }
-
-    #[test]
-    fn convert_float_s16() {
-        assert_eq!(float_to_s16(-1.0), i16::MIN + 1);
-        assert_eq!(float_to_s16(0.0), 0);
-        assert_eq!(float_to_s16(1.0), i16::MAX);
+        let a = vec![i16::MIN + 1, 0i16, i16::MAX];
+        let b = vec![-1.0f32, 0.0f32, 1.0f32];
+        assert_eq!(a, convert_sample_buf::<f32, i16>(&b));
+        assert_eq!(b, convert_sample_buf::<i16, f32>(&a));
     }
 }

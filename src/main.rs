@@ -4,7 +4,7 @@ use core::panic;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
-use bss::DynSampleStream;
+// use bss::DynSampleStream;
 
 use tokio_stream::StreamExt;
 
@@ -16,6 +16,7 @@ cargo run -- -i float -n real convert --output s16 |
 mplayer -cache 1024 -quiet -rawaudio samplesize=2:channels=1:rate=48000 -demuxer rawaudio -
 */
 
+/*
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 struct Cli {
@@ -126,5 +127,11 @@ async fn main() -> std::io::Result<()> {
     while let Some(v) = stream.next().await {
         stdout().write_all(v.as_ref()).await?;
     }
+    Ok(())
+}
+
+*/
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
     Ok(())
 }

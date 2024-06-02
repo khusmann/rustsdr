@@ -1,3 +1,158 @@
+use crate::sampletypes::*;
+
+use num_complex::Complex;
+use num_traits::{Num, ToBytes};
+use std::pin::Pin;
+
+use tokio::io::stdin;
+use tokio::time;
+use tokio_stream::wrappers::IntervalStream;
+use tokio_stream::{Stream, StreamExt};
+use tokio_util::io::ReaderStream;
+
+pub trait SampleStream {
+    type Sample;
+
+    fn convert_samples<U>(self) -> impl Stream<Item = Vec<U>>
+    where
+        Self::Sample: ConvertSampleInto<U>;
+
+    fn map_samples<F, R>(self, f: F) -> impl Stream<Item = Vec<R>>
+    where
+        F: FnMut(Self::Sample) -> R;
+}
+
+impl<St, T> SampleStream for St
+where
+    St: Stream<Item = Vec<T>>,
+{
+    type Sample = T;
+    fn convert_samples<U>(self) -> impl Stream<Item = Vec<U>>
+    where
+        Self::Sample: ConvertSampleInto<U>,
+    {
+        self.map_samples(|v| v.convert_sample_into())
+    }
+
+    fn map_samples<F, R>(self, mut f: F) -> impl Stream<Item = Vec<R>>
+    where
+        F: FnMut(T) -> R,
+    {
+        self.map(move |chunk| chunk.into_iter().map(|v| f(v)).collect())
+    }
+}
+
+pub trait RealSampleStream: SampleStream {
+    const SAMPLE_BYTES: usize;
+    fn as_complex(self) -> impl Stream<Item = Vec<Complex<Self::Sample>>>;
+    fn serialize(self) -> impl Stream<Item = Vec<u8>>;
+}
+
+impl<St, T, const N: usize> RealSampleStream for St
+where
+    St: SampleStream<Sample = T> + Stream<Item = Vec<T>>,
+    T: Num + Copy + ToBytes<Bytes = [u8; N]>,
+{
+    const SAMPLE_BYTES: usize = N;
+
+    fn as_complex(self) -> impl Stream<Item = Vec<Complex<T>>> {
+        self.map_samples(|v| Complex::new(v, T::zero()))
+    }
+
+    fn serialize(self) -> impl Stream<Item = Vec<u8>> {
+        self.map(|b| {
+            b.into_iter()
+                .map(|v| v.to_le_bytes().into_iter())
+                .flatten()
+                .collect()
+        })
+    }
+}
+
+pub trait ComplexSampleStream: SampleStream {
+    type Arg;
+    const ARG_BYTES: usize;
+    fn realpart(self) -> impl Stream<Item = Vec<Self::Arg>>;
+    fn impart(self) -> impl Stream<Item = Vec<Self::Arg>>;
+    fn serialize(self) -> impl Stream<Item = Vec<u8>>;
+}
+
+impl<St, T, const N: usize> ComplexSampleStream for St
+where
+    St: SampleStream<Sample = Complex<T>> + Stream<Item = Vec<Complex<T>>>,
+    T: Num + Copy + ToBytes<Bytes = [u8; N]>,
+{
+    type Arg = T;
+    const ARG_BYTES: usize = N;
+
+    fn realpart(self) -> impl Stream<Item = Vec<T>> {
+        self.map_samples(|v| v.re)
+    }
+
+    fn impart(self) -> impl Stream<Item = Vec<T>> {
+        self.map_samples(|v| v.im)
+    }
+
+    fn serialize(self) -> impl Stream<Item = Vec<u8>> {
+        self.map(|b| {
+            b.into_iter()
+                .map(|v| {
+                    [
+                        v.re.to_le_bytes().into_iter(),
+                        v.im.to_le_bytes().into_iter(),
+                    ]
+                    .into_iter()
+                    .flatten()
+                })
+                .flatten()
+                .collect()
+        })
+    }
+}
+
+use tokio::io::{stdout, AsyncWriteExt};
+
+pub async fn foo() {
+    let i = stream_sample_fn(|| 1f32, 44000, 100);
+
+    let mut stream = i.convert_samples::<i16>().serialize();
+
+    while let Some(v) = stream.next().await {
+        let _res = stdout().write_all(&v).await;
+    }
+}
+
+pub fn stream_sample_fn<F, T>(
+    mut f: F,
+    rate: u32,
+    sample_buffer_size: usize,
+) -> impl Stream<Item = Vec<T>>
+where
+    F: FnMut() -> T,
+{
+    let delay_period = sample_buffer_size as f32 / rate as f32;
+    let interval = time::interval(time::Duration::from_secs_f32(delay_period));
+    IntervalStream::new(interval).map(move |_| (0..sample_buffer_size).map(|_| f()).collect())
+}
+
+pub fn stream_stdin_samples(buffer_size: usize) -> impl Stream<Item = Vec<u8>> {
+    ReaderStream::with_capacity(stdin(), buffer_size).map(|v| {
+        let x = v.unwrap();
+        //eprint!("read {} bytes\n", x.len());
+        x.into()
+    })
+}
+
+pub enum DynSampleStream<'a> {
+    ComplexFloat(Pin<Box<dyn Stream<Item = Vec<Complex<f32>>> + 'a>>),
+    ComplexS16(Pin<Box<dyn Stream<Item = Vec<Complex<i16>>> + 'a>>),
+    ComplexChar(Pin<Box<dyn Stream<Item = Vec<Complex<u8>>> + 'a>>),
+    Float(Pin<Box<dyn Stream<Item = Vec<f32>> + 'a>>),
+    S16(Pin<Box<dyn Stream<Item = Vec<i16>> + 'a>>),
+    Char(Pin<Box<dyn Stream<Item = Vec<u8>> + 'a>>),
+}
+
+/*
 use crate::gen;
 use std::pin::Pin;
 
@@ -619,3 +774,4 @@ where
         DynSampleStream::Bytes(Box::pin(self))
     }
 }
+*/
