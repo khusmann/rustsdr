@@ -2,14 +2,56 @@ use crate::gen;
 use crate::sampletypes::*;
 
 use num_complex::Complex;
-use num_traits::{Num, ToBytes};
+use num_traits::{FromBytes, Num, ToBytes};
+use std::marker::PhantomData;
 use std::pin::Pin;
 
 use tokio::io::stdin;
 use tokio::time;
 use tokio_stream::wrappers::IntervalStream;
 use tokio_stream::{Stream, StreamExt};
-use tokio_util::io::ReaderStream;
+
+use tokio_util::bytes::{Buf, BytesMut};
+use tokio_util::codec::{Decoder, FramedRead};
+
+struct SampleDecoder<T, const N: usize> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T, const N: usize> SampleDecoder<T, N> {
+    fn new() -> Self {
+        SampleDecoder {
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<T, const N: usize> Decoder for SampleDecoder<T, N>
+where
+    T: FromBytes<Bytes = [u8; N]>,
+{
+    type Item = Vec<T>;
+    type Error = std::io::Error;
+
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        if src.len() < N {
+            // Not enough data to read type
+            return Ok(None);
+        }
+
+        let length = (src.len() / N) * N;
+
+        let out = src
+            .as_ref()
+            .chunks_exact(N)
+            .map(|v| FromBytes::from_le_bytes(v.try_into().unwrap()))
+            .collect();
+
+        src.advance(length);
+
+        Ok(Some(out))
+    }
+}
 
 pub trait SampleStream {
     type Sample;
@@ -124,11 +166,14 @@ where
     IntervalStream::new(interval).map(move |_| (0..sample_buffer_size).map(|_| f()).collect())
 }
 
-pub fn stream_stdin_samples(buffer_size: usize) -> impl Stream<Item = Vec<u8>> {
-    ReaderStream::with_capacity(stdin(), buffer_size).map(|v| {
-        let x = v.unwrap();
-        //eprint!("read {} bytes\n", x.len());
-        x.into()
+pub fn stream_stdin_samples<T, const N: usize>(buffer_size: usize) -> impl Stream<Item = Vec<T>>
+where
+    T: FromBytes<Bytes = [u8; N]>,
+{
+    FramedRead::with_capacity(stdin(), SampleDecoder::<T, N>::new(), buffer_size).map(|v| {
+        let out = v.unwrap();
+        //eprintln!("got {:?} samples", out.len());
+        out
     })
 }
 
@@ -198,7 +243,18 @@ impl<'a> DynSampleStream<'a> {
         num_type: NumType,
         bit_depth: BitDepth,
     ) -> DynSampleStream<'a> {
-        stream_stdin_samples(sample_buffer_size).into_dyn()
+        match (num_type, bit_depth) {
+            (NumType::Real, BitDepth::Float) => {
+                stream_stdin_samples::<f32, 4>(sample_buffer_size).into_dyn()
+            }
+            (NumType::Real, BitDepth::S16) => {
+                stream_stdin_samples::<i16, 2>(sample_buffer_size).into_dyn()
+            }
+            (NumType::Real, BitDepth::Char) => {
+                stream_stdin_samples::<u8, 1>(sample_buffer_size).into_dyn()
+            }
+            _ => panic!("Type not supported"),
+        }
     }
 
     pub fn convert_samples(self, bit_depth: BitDepth) -> DynSampleStream<'a> {
