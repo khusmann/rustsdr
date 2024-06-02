@@ -1,5 +1,7 @@
 use rustsdr::*;
 
+use crate::bss::DynSampleStream;
+
 use core::panic;
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -16,7 +18,6 @@ cargo run -- -i float -n real convert --output s16 |
 mplayer -cache 1024 -quiet -rawaudio samplesize=2:channels=1:rate=48000 -demuxer rawaudio -
 */
 
-/*
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 struct Cli {
@@ -117,21 +118,15 @@ async fn main() -> std::io::Result<()> {
         ),
         Some(Commands::Convert { output }) => {
             DynSampleStream::source_stdin(cli.buffer_size, cli.num_type.into(), cli.input.into())
-                .convert(output.clone().into())
+                .convert_samples(output.clone().into())
         }
         None => panic!("No subcommand provided"),
     };
 
-    let mut stream = pipeline.stream_bytes();
+    let mut stream = pipeline.serialize();
 
     while let Some(v) = stream.next().await {
-        stdout().write_all(v.as_ref()).await?;
+        stdout().write_all(&v).await?;
     }
-    Ok(())
-}
-
-*/
-#[tokio::main]
-async fn main() -> std::io::Result<()> {
     Ok(())
 }
